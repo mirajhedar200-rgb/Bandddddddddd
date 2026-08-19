@@ -97,7 +97,7 @@ async def ensure_user(m, ref=None):
             await c.execute("UPDATE users SET username=?,first_name=?,last_seen=? WHERE id=?",(u.username,u.first_name,now(),u.id)); await c.commit(); return dict(r)
         safe=None
         if ref and ref!=u.id and await (await c.execute("SELECT id FROM users WHERE id=?",(ref,))).fetchone(): safe=ref
-        t=now(); await c.execute("INSERT INTO users(id,username,first_name,referrer_id,balance,created_at,last_seen) VALUES(?,?,?,?,15000,?,?,?)",(u.id,u.username,u.first_name,safe,t,t))
+        t=now(); await c.execute("INSERT INTO users(id,username,first_name,referrer_id,balance,created_at,last_seen) VALUES(?,?,?,?,15000,?,?)",(u.id,u.username,u.first_name,safe,t,t))
         await c.execute("INSERT INTO ledger(user_id,wallet,delta,reason,created_at) VALUES(?,?,?,?,?)",(u.id,"bot",15000,"🎁 بونص التسجيل",t))
         if safe:
             reward=int(await setting("ref_reward","1000")); await c.execute("UPDATE users SET balance=balance+? WHERE id=?",(reward,safe)); await c.execute("INSERT INTO ledger(user_id,wallet,delta,reason,created_at) VALUES(?,?,?,?,?)",(safe,"bot",reward,f"👥 إحالة المستخدم {u.id}",t))
@@ -248,7 +248,7 @@ def method_kb(tp):
         return inline([[InlineKeyboardButton(text=f"{m['name']}",callback_data=f"m:{tp}:{m['id']}")] for m in []])
     return x
 
-@DP.callback_query(F.data.in_("ich:dep","bot:dep"))
+@DP.callback_query(F.data.in_({"ich:dep","bot:dep"}))
 async def dep_click(c,state):
     wallet="ichancy" if c.data.startswith("ich") else "bot"; await state.update_data(wallet=wallet); await state.set_state(S.dep_amount); await c.answer(); await c.message.answer(f"💳 أدخل مبلغ الشحن بالليرة السورية\nالحد الأدنى: {int(await setting('min_i_deposit' if wallet=='ichancy' else 'min_deposit','1000')):,}")
 @DP.message(S.dep_amount)
@@ -265,7 +265,7 @@ async def dep_method(c,state): await state.update_data(method_id=int(c.data.spli
 async def dep_ref(m,state):
     d=await state.get_data(); ms=await methods("deposit"); x=next(z for z in ms if z['id']==d['method_id']); tid=await tx_create(m.from_user.id,"deposit",d['wallet'],d['amount'],x['name'],reference=(m.text or "")[:500]); await state.clear(); await m.answer(f"✅ تم إنشاء طلب الشحن #{tid}\n⏳ بانتظار مراجعة الإدارة.",reply_markup=main_kb()); await notify_admin(f"💳 طلب شحن جديد #{tid}\nالمستخدم: <code>{m.from_user.id}</code>\nالمحفظة: {d['wallet']}\nالمبلغ: {d['amount']:,} ل.س\nالطريقة: {x['name']}\nالمرجع: {(m.text or '')[:500]}",tid)
 
-@DP.callback_query(F.data.in_("ich:wd","bot:wd"))
+@DP.callback_query(F.data.in_({"ich:wd","bot:wd"}))
 async def wd_click(c,state):
     wallet="ichancy" if c.data.startswith("ich") else "bot"; u=await user(c.from_user.id); await state.update_data(wallet=wallet); await state.set_state(S.wd_amount); await c.answer(); await c.message.answer(f"💸 رصيدك الحالي: {u['ichancy_balance' if wallet=='ichancy' else 'balance']:,} ل.س\n\nأدخل مبلغ السحب:")
 @DP.message(S.wd_amount)
@@ -292,7 +292,20 @@ async def rec(c):
     cc=await db(); rows=await (await cc.execute("SELECT * FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 15",(c.from_user.id,))).fetchall(); await cc.close(); await c.answer(); await c.message.answer("📋 <b>سجل العمليات</b>\n\n"+"\n".join(f"{r['created_at'][:19]} | {r['wallet']} | {'+' if r['delta']>=0 else ''}{r['delta']:,} | {r['reason']}" for r in rows) if rows else "لا توجد عمليات.")
 @DP.message(F.text=="📋 سجلاتي")
 async def rec_btn(m):
-    if await guard(m): await rec(CallbackQuery(id="x",from_user=m.from_user,chat_instance="x",message=m))
+    if not await guard(m):
+        return
+    cc=await db()
+    try:
+        rows=await (await cc.execute("SELECT * FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 15",(m.from_user.id,))).fetchall()
+    finally:
+        await cc.close()
+    if not rows:
+        return await m.answer("📋 لا توجد عمليات.")
+    text="📋 <b>سجل العمليات</b>\n\n" + "\n".join(
+        f"{r['created_at'][:19]} | {r['wallet']} | {'+' if r['delta']>=0 else ''}{r['delta']:,} | {r['reason']}"
+        for r in rows
+    )
+    await m.answer(text)
 
 @DP.message(F.text=="👥 الإحالات")
 async def refs(m):
