@@ -7,3 +7,9 @@ __pycache__/
 *.pyd
 .idea/
 .vscode/
+*.db
+*.sqlite
+*.sqlite3
+.env
+__pycache__/
+*.pyc
