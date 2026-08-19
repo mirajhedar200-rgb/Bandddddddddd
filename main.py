@@ -1497,20 +1497,50 @@ async def start_web_server():
 # =========================================================
 # MAIN
 # =========================================================
+# =========================================================
+# MAIN
+# =========================================================
 
 async def main():
     await init_db()
     await start_web_server()
+
+    # =====================================================
+    # DELETE OLD WEBHOOK BEFORE POLLING
+    # =====================================================
+    try:
+        logging.info("Checking and deleting any active Telegram webhook...")
+        await bot.delete_webhook(drop_pending_updates=True)
+        logging.info("Webhook deleted successfully.")
+    except Exception as e:
+        logging.exception("Failed to delete Telegram webhook: %s", e)
+
+    # =====================================================
+    # START BOT
+    # =====================================================
     me = await bot.get_me()
     logging.info(f"Bot started: @{me.username}")
+
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types()
+        )
+
     except TelegramConflictError:
-        logging.error("TelegramConflictError: another instance of this bot is running.")
+        logging.error(
+            "TelegramConflictError: another instance of this bot "
+            "is running or Telegram is still using another update receiver."
+        )
         raise
+
+    except asyncio.CancelledError:
+        logging.info("Bot polling cancelled.")
+
     finally:
         if pool:
             await pool.close()
+
         await bot.session.close()
 
 
