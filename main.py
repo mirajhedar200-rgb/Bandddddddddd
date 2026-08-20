@@ -20,7 +20,7 @@ web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    return "iChancy Professional Bot Server Active!"
+    return "Banda Bot Server Active!"
 
 def keep_alive_ping():
     render_url = os.environ.get("RENDER_EXTERNAL_URL")
@@ -47,10 +47,14 @@ def upgrade_db():
     except sqlite3.OperationalError: pass
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS system_settings (key TEXT PRIMARY KEY, value TEXT)''')
-    cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('syriatel_num', '09xxxxxxxx')")
-    cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('sham_num', '09xxxxxxxx')")
+    
+    # فصل بيانات الشحن عن بيانات السحب
+    cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('deposit_syriatel', '09xxxxxxxx')")
+    cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('deposit_sham', '09xxxxxxxx')")
+    cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('withdraw_info', 'أرسل رقم محفظتك والمبلغ المطلوب للدعم.')")
+    
     cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('required_channel', '')")
-    cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('sub_enabled', '1')") # 1 مفعل, 0 معطل
+    cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('sub_enabled', '1')") # 1 مفعل إجبارياً
     cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('welcome_bonus', '15000')")
     cursor.execute("INSERT OR IGNORE INTO system_settings VALUES ('referral_bonus', '500')")
 
@@ -99,7 +103,7 @@ def main_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# --- قائمة حساب ايشانسي ---
+# --- قائمة حساب ايشانسي المطابقة للصورة ---
 def ichancy_account_keyboard():
     keyboard = [
         ["سحب رصيد من الحساب 📤", "شحن رصيد في الحساب 📥"],
@@ -110,7 +114,7 @@ def ichancy_account_keyboard():
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ==========================================
-# 3. فحص الاشتراك الإجباري والحظر
+# 3. نظام الاشتراك الإجباري الصارم
 # ==========================================
 async def is_user_subscribed(bot, user_id: int) -> bool:
     if user_id == ADMIN_ID: return True
@@ -125,7 +129,7 @@ async def is_user_subscribed(bot, user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
         return member.status in ['creator', 'administrator', 'member']
-    except Exception: return True
+    except Exception: return False
 
 async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
@@ -147,13 +151,16 @@ async def check_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bo
             [InlineKeyboardButton("🔄 تحقق من الاشتراك", callback_data="check_sub")]
         ]
         msg = f"⚠️ **عذراً عزيزي!**\nيجب عليك الاشتراك في القناة التالية أولاً لاستخدام البوت:\n{channel}"
-        if update.message: await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        elif update.callback_query: await update.callback_query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        
+        if update.message: 
+            await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        elif update.callback_query and update.callback_query.data != "check_sub":
+            await update.callback_query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         return False
     return True
 
 # ==========================================
-# 4. الأوامر الأساسية
+# 4. الأوامر الأساسية والترحيب
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -180,10 +187,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try: await context.bot.send_message(referred_by, f"🎉 **إحالة جديدة!** حصلت على +{ref_bonus:,.0f} ل.س.")
             except: pass
         conn.commit()
-        await update.message.reply_text(f"🎁 **مرحباً بك! تم منحك بونص ترحيبي بقيمة {welcome_bonus:,.0f} ل.س!**")
+
     conn.close()
 
-    await update.message.reply_text("✨ **أهلاً بك في بوت خدمات ايشانسي!**\nاختر من القائمة بالأسفل:", reply_markup=main_keyboard())
+    # الرسالة الترحيبية المطلوبة بالضبط
+    await update.message.reply_text("أهلاً وسهلا بك ياملك في Banda Bot", reply_markup=main_keyboard())
 
 async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_access(update, context): return
@@ -267,7 +275,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return
 
-    # --- معالجة إدخالات لوحة الأدمن ---
+    # --- معالجة مدخلات لوحة التحكم للأدمن ---
     elif user_id == ADMIN_ID and state:
         if state == 'ADM_CODE_NAME':
             context.user_data['code_name'] = text.strip()
@@ -277,7 +285,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif state == 'ADM_CODE_AMT':
             context.user_data['code_amt'] = float(text)
             context.user_data['state'] = 'ADM_CODE_USES'
-            await update.message.reply_text("👥 أدخل **عدد الأشخاص (عدد المرات)** المسموح لهم بآستخدامه:")
+            await update.message.reply_text("👥 أدخل **عدد الأشخاص** المسموح لهم باستخدامه:")
             return
         elif state == 'ADM_CODE_USES':
             c_name, c_amt, c_uses = context.user_data['code_name'], context.user_data['code_amt'], int(text)
@@ -329,15 +337,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             await update.message.reply_text(f"✅ تم تعديل مكافأة الإحالة إلى: {text} ل.س")
             return
-        elif state == 'ADM_SET_SYRIATEL':
-            set_setting('syriatel_num', text)
+        elif state == 'ADM_SET_DEP_SYRIATEL':
+            set_setting('deposit_syriatel', text)
             context.user_data.clear()
-            await update.message.reply_text("✅ تم تحديث رقم سيرياتل كاش بنجاح.")
+            await update.message.reply_text("✅ تم تحديث رقم سيرياتل كاش الخاص **بالشحن**.")
             return
-        elif state == 'ADM_SET_SHAM':
-            set_setting('sham_num', text)
+        elif state == 'ADM_SET_DEP_SHAM':
+            set_setting('deposit_sham', text)
             context.user_data.clear()
-            await update.message.reply_text("✅ تم تحديث رقم شام كاش بنجاح.")
+            await update.message.reply_text("✅ تم تحديث رقم شام كاش الخاص **بالشحن**.")
+            return
+        elif state == 'ADM_SET_WITHDRAW':
+            set_setting('withdraw_info', text)
+            context.user_data.clear()
+            await update.message.reply_text("✅ تم تحديث **تعليمات ومعلومات السحب** بنجاح.")
             return
         elif state == 'ADM_BAN_ID':
             conn = sqlite3.connect('ichancy_bot.db')
@@ -415,14 +428,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "رجوع ⬅️":
         await update.message.reply_text("✨ القائمة الرئيسية:", reply_markup=main_keyboard())
 
+    elif text == "شحن رصيد في البوت 📥":
+        syr = get_setting('deposit_syriatel', 'غير محدد')
+        sham = get_setting('deposit_sham', 'غير محدد')
+        await update.message.reply_text(f"📥 **بيانات الشحن:**\n📱 سيرياتل كاش: `{syr}`\n🌐 شام كاش: `{sham}`\n\nقم بالتحويل ثم أرسل إشعار التحويل للدعم.", parse_mode='Markdown')
+
+    elif text == "سحب رصيد من البوت 📤":
+        w_info = get_setting('withdraw_info', 'غير محدد')
+        await update.message.reply_text(f"📤 **تعليمات ومعلومات السحب:**\n\n{w_info}", parse_mode='Markdown')
+
     elif text == "كود جائزة 🏆":
         context.user_data['state'] = 'WAITING_PROMO'
         await update.message.reply_text("🎟️ **أدخل كود الهدية الآن للحصول على الرصيد:**")
-
-    elif text in ["شحن رصيد في البوت 📥", "سحب رصيد من البوت 📤"]:
-        syr = get_setting('syriatel_num', 'غير محدد')
-        sham = get_setting('sham_num', 'غير محدد')
-        await update.message.reply_text(f"💳 **بيانات التحويل:**\n📱 سيرياتل كاش: `{syr}`\n🌐 شام كاش: `{sham}`\n\nحوال الرصيد ثم أرسل الإشعار للدعم.", parse_mode='Markdown')
 
     elif text == "الإحالات 💰":
         bot_info = await context.bot.get_me()
@@ -443,7 +460,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("🤖 اختر خياراً من القائمة أدناه.")
 
 # ==========================================
-# 6. لوحة الأدمن الكاملة
+# 6. لوحة الأدمن الشاملة بالكامل
 # ==========================================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -451,15 +468,15 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sub_status = "🟢 مفعل" if get_setting('sub_enabled', '1') == '1' else "🔴 معطل"
 
     keyboard = [
+        [InlineKeyboardButton("📥 تعديل بيانات الشحن", callback_data="adm_dep_menu"), InlineKeyboardButton("📤 تعديل بيانات السحب", callback_data="adm_with_menu")],
         [InlineKeyboardButton("➕ إضافة رصيد", callback_data="adm_add"), InlineKeyboardButton("➖ خصم رصيد", callback_data="adm_sub")],
         [InlineKeyboardButton("🎫 إنشاء كود هدية", callback_data="adm_code")],
-        [InlineKeyboardButton(f"📢 الاشتراك الإجبارية ({sub_status})", callback_data="adm_sub_menu")],
+        [InlineKeyboardButton(f"📢 الاشتراك الإجباري ({sub_status})", callback_data="adm_sub_menu")],
         [InlineKeyboardButton("🎁 تعديل البونص الترحيبي", callback_data="adm_welc"), InlineKeyboardButton("💰 تعديل مكافأة الإحالة", callback_data="adm_ref")],
-        [InlineKeyboardButton("💳 سيرياتل كاش", callback_data="adm_syr"), InlineKeyboardButton("🌐 شام كاش", callback_data="adm_sham")],
         [InlineKeyboardButton("📊 الإحصائيات", callback_data="adm_stats"), InlineKeyboardButton("📢 إذاعة جماعية", callback_data="adm_broad")],
         [InlineKeyboardButton("🚫 حظر مستخدم", callback_data="adm_ban"), InlineKeyboardButton("🔓 فك حظر", callback_data="adm_unban")]
     ]
-    await update.message.reply_text("⚙️ **لوحة التحكم الشاملة لإدارة البوت:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    await update.message.reply_text("⚙️ **لوحة التحكم الشاملة لإدارة Banda Bot:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -468,9 +485,23 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "check_sub":
         if await is_user_subscribed(context.bot, query.from_user.id):
             await query.message.delete()
-            await query.message.reply_text("✅ **شكراً لاشتراكك! يمكنك الآن استخدام البوت بنجاح.**", reply_markup=main_keyboard())
+            await query.message.reply_text("أهلاً وسهلا بك ياملك في Banda Bot", reply_markup=main_keyboard())
         else:
             await query.answer("❌ لم تشترك بالقناة بعد! يرجى الاشتراك أولاً.", show_alert=True)
+
+    elif query.data == "adm_dep_menu":
+        syr = get_setting('deposit_syriatel', 'غير محدد')
+        sham = get_setting('deposit_sham', 'غير محدد')
+        keyboard = [
+            [InlineKeyboardButton("📱 تعديل سيرياتل كاش الشحن", callback_data="adm_dep_syr")],
+            [InlineKeyboardButton("🌐 تعديل شام كاش الشحن", callback_data="adm_dep_sham")]
+        ]
+        await query.message.reply_text(f"📥 **إدارة بيانات الشحن:**\n📱 سيرياتل: `{syr}`\n🌐 شام كاش: `{sham}`", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+    elif query.data == "adm_with_menu":
+        w_info = get_setting('withdraw_info', 'غير محدد')
+        keyboard = [[InlineKeyboardButton("✏️ تعديل نص/بيانات السحب", callback_data="adm_set_with")]]
+        await query.message.reply_text(f"📤 **إدارة بيانات السحب الحالية:**\n\n{w_info}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
     elif query.data == "adm_sub_menu":
         sub_state = get_setting('sub_enabled', '1')
@@ -479,8 +510,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = [
             [InlineKeyboardButton(toggle_text, callback_data="adm_toggle_sub")],
-            [InlineKeyboardButton("✏️ تغيير يوزر القناة", callback_data="adm_chan")],
-            [InlineKeyboardButton("⬅️ رجوع للوحة الأدمن", callback_data="adm_back")]
+            [InlineKeyboardButton("✏️ تغيير يوزر القناة", callback_data="adm_chan")]
         ]
         await query.message.reply_text(f"📢 **قسم إدارة الاشتراك الإجباري:**\n\n📌 القناة الحالية: `{cur_chan}`\n⚙️ الحالة: {'مفعل' if sub_state == '1' else 'معطل'}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -489,6 +519,16 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_state = '0' if current == '1' else '1'
         set_setting('sub_enabled', new_state)
         await query.message.reply_text(f"✅ تم {'تفعيل' if new_state == '1' else 'تعطيل'} الاشتراك الإجباري بنجاح.")
+
+    elif query.data == "adm_dep_syr":
+        context.user_data['state'] = 'ADM_SET_DEP_SYRIATEL'
+        await query.message.reply_text("أدخل رقم سيرياتل كاش الخاص **بالشحن**:")
+    elif query.data == "adm_dep_sham":
+        context.user_data['state'] = 'ADM_SET_DEP_SHAM'
+        await query.message.reply_text("أدخل رقم شام كاش الخاص **بالشحن**:")
+    elif query.data == "adm_set_with":
+        context.user_data['state'] = 'ADM_SET_WITHDRAW'
+        await query.message.reply_text("أدخل تعليمات وبيانات **السحب** الجديدة:")
 
     elif query.data == "adm_stats":
         conn = sqlite3.connect('ichancy_bot.db')
@@ -513,12 +553,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "adm_ref":
         context.user_data['state'] = 'ADM_SET_REF'
         await query.message.reply_text("أدخل قيمة مكافأة الإحالة الجديدة:")
-    elif query.data == "adm_syr":
-        context.user_data['state'] = 'ADM_SET_SYRIATEL'
-        await query.message.reply_text("أدخل رقم سيرياتل كاش الجديد:")
-    elif query.data == "adm_sham":
-        context.user_data['state'] = 'ADM_SET_SHAM'
-        await query.message.reply_text("أدخل رقم شام كاش الجديد:")
     elif query.data == "adm_ban":
         context.user_data['state'] = 'ADM_BAN_ID'
         await query.message.reply_text("أرسل ID المستخدم للحظر:")
@@ -536,6 +570,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 7. التشغيل
 # ==========================================
 async def post_init(application):
+    # إخفاء أمر /admin نهائياً من القائمة المباشرة
     await application.bot.set_my_commands([
         BotCommand("start", "بدء البوت"),
         BotCommand("balance", "معرفة رصيدك")
@@ -552,7 +587,7 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print("⚡ البوت المحترف جاهز بكافة خياراته وبدون أي نقص...")
+    print("⚡ Banda Bot جاهز تماماً وبدون أي أخطاء...")
     app.run_polling()
 
 if __name__ == '__main__':
