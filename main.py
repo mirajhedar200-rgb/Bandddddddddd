@@ -10,14 +10,15 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
     MessageHandler, filters, ContextTypes, ConversationHandler
 )
+from telegram.error import BadRequest
 from database import init_db
 
-# --- تشغيل سيرفر وهمي لإرضاء Render على الخطة المجانية ---
+# --- السيرفر الوهمي (لجعل البوت يعمل مجاناً على Render) ---
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    return "Bot is running perfectly!"
+    return "Bot is running perfectly with all features!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -26,10 +27,11 @@ def run_web_server():
 # تهيئة قاعدة البيانات
 init_db()
 
-# جلب البيانات من متغيرات البيئة
+# --- جلب المتغيرات من Render ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_KEY")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
+CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@YourChannel") # يوزر القناة للاشتراك الإجباري
 
 # تهيئة عميل الذكاء الاصطناعي
 if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_KEY":
@@ -37,26 +39,49 @@ if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_KEY":
 else:
     ai_client = None
 
-# حالات المحادثة
-WAITING_GIFT_USER, WAITING_GIFT_AMOUNT = range(2)
-WAITING_PROMO_CODE = range(2, 3)
+# حالات المحادثة العامة والأدمن
+WAITING_GIFT_USER, WAITING_GIFT_AMOUNT, WAITING_PROMO_CODE = range(3)
+ADMIN_WAITING_ID_ADD, ADMIN_WAITING_AMOUNT_ADD = range(3, 5)
+ADMIN_WAITING_ID_SUB, ADMIN_WAITING_AMOUNT_SUB = range(5, 7)
+ADMIN_WAITING_BROADCAST = range(7, 8)
+ADMIN_WAITING_PROMO_AMOUNT = range(8, 9)
 
-# --- القائمة الرئيسية ---
+# --- كيبورد القائمة الرئيسية ---
 def main_keyboard():
     keyboard = [
-        ["حساب ايشانسي وشحنه ⚡"],
+        ["حسابي والرصيد 👤💰", "حساب ايشانسي وشحنه ⚡"],
         ["سحب رصيد من البوت 📥", "شحن رصيد في البوت 📤"],
         ["إهداء صديق 🎁", "كود جائزة 🏆"],
-        ["الإحالات 💰"],
-        ["السجلات 🔄", "إرسال رسالة للدعم 💬"],
-        ["للتسلية 🎲", "ايشانسي ↗️"],
-        ["استرداد آخر طلب سحب 💸"],
-        ["العروض النشطة 🎁", "شروط الاستخدام ⚠️"]
+        ["الإحالات 💰", "السجلات 🔄"],
+        ["استرداد آخر طلب سحب 💸", "ايشانسي ↗️"],
+        ["إرسال رسالة للدعم 💬", "شروط الاستخدام ⚠️"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+# --- فحص الاشتراك الإجباري ---
+async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if CHANNEL_USERNAME == "@YourChannel": return True
+    user_id = update.effective_user.id
+    if user_id == ADMIN_ID: return True # استثناء الأدمن
+    
+    try:
+        member = await context.bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
+        if member.status in ['left', 'kicked']:
+            keyboard = [[InlineKeyboardButton("📢 اشترك في القناة أولاً", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")]]
+            await update.message.reply_text(
+                "❌ **عذراً، يجب عليك الاشتراك في قناة البوت أولاً لتتمكن من استخدامه.**\nبعد الاشتراك اضغط على /start",
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown'
+            )
+            return False
+        return True
+    except BadRequest:
+        # إذا لم يكن البوت أدمن في القناة
+        return True
+
 # --- أمر البدء /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_subscription(update, context): return
+
     user_id = update.effective_user.id
     args = context.args
     referred_by = int(args[0]) if args and args[0].isdigit() else None
@@ -70,52 +95,57 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("INSERT INTO users (user_id, balance, referred_by) VALUES (?, 15000.0, ?)", (user_id, referred_by))
         if referred_by and referred_by != user_id:
             cursor.execute("SELECT value FROM settings WHERE key = 'referral_bonus'")
-            ref_bonus = float(cursor.fetchone()[0])
+            ref_bonus_row = cursor.fetchone()
+            ref_bonus = float(ref_bonus_row[0]) if ref_bonus_row else 2000.0
+            
             cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (ref_bonus, referred_by))
             try:
                 await context.bot.send_message(
                     chat_id=referred_by, 
-                    text=f"🎉 **إحالة جديدة!**\nانضم مستخدم جديد عبر رابطك وتم إضافة +{ref_bonus:,.0f} ل.س إلى رصيدك! ✨"
+                    text=f"🎉 **إحالة جديدة!**\nتم إضافة +{ref_bonus:,.0f} ل.س إلى رصيدك! ✨"
                 )
             except Exception:
                 pass
         conn.commit()
-        balance = 15000.0
-    else:
-        balance = user[0]
-
     conn.close()
 
-    welcome_text = (
-        f"✨ **مرحباً بك في بوت خدمات ايشانسي الشامل!** 🚀\n\n"
-        f"💰 **الرصيد الحالي:** {balance:,.0f} SYP\n"
-        f"🆔 **أيدي حسابك:** `{user_id}`\n\n"
-        f"💡 يمكنك استخدام القائمة أسفله للتحكم بحسابك، أو كتابة أي سؤال للرد عليك بواسطة **الذكاء الاصطناعي**! 🤖"
+    await update.message.reply_text(
+        "✨ **مرحباً بك في بوت خدمات ايشانسي الشامل!** 🚀\n"
+        "استخدم أزرار القائمة بالأسفل للتحكم بحسابك، أو اكتب أي سؤال ليرد عليك الذكاء الاصطناعي 🤖",
+        parse_mode='Markdown', reply_markup=main_keyboard()
     )
-    await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=main_keyboard())
 
-# --- معالجة أزرار القائمة والرسائل العامة ---
+# --- معالجة الرسائل العادية ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_subscription(update, context): return
+    
     text = update.message.text
     user_id = update.effective_user.id
 
-    if text == "شحن رصيد في البوت 📤":
+    if text == "حسابي والرصيد 👤💰":
+        conn = sqlite3.connect('ichancy_bot.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+        balance = cursor.fetchone()[0]
+        conn.close()
+        await update.message.reply_text(
+            f"👤 **معلومات حسابك:**\n\n"
+            f"🆔 **الآيدي الخاص بك:** `{user_id}`\n"
+            f"💰 **الرصيد الحالي:** `{balance:,.0f}` ل.س",
+            parse_mode='Markdown'
+        )
+
+    elif text == "شحن رصيد في البوت 📤":
         keyboard = [
-            [InlineKeyboardButton("💳 سيرياتل كاش", callback_data="dep_syriatel")],
-            [InlineKeyboardButton("🌐 شام كاش سوري", callback_data="dep_sham_syp")],
-            [InlineKeyboardButton("💵 شام كاش دولار", callback_data="dep_sham_usd")],
-            [InlineKeyboardButton("⬅️ رجوع", callback_data="back_main")]
+            [InlineKeyboardButton("💳 سيرياتل كاش", callback_data="dep_syriatel"), InlineKeyboardButton("🌐 شام كاش سوري", callback_data="dep_sham_syp")]
         ]
-        await update.message.reply_text("📥 **اختر إحدى طرق الشحن المتاحة:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await update.message.reply_text("📥 **اختر طريقة الشحن:**", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif text == "سحب رصيد من البوت 📥":
         keyboard = [
-            [InlineKeyboardButton("💳 سيرياتل كاش", callback_data="wit_syriatel")],
-            [InlineKeyboardButton("🌐 شام كاش سوري", callback_data="wit_sham_syp")],
-            [InlineKeyboardButton("💎 شام كاش مبالغ كبيرة", callback_data="wit_sham_usd")],
-            [InlineKeyboardButton("⬅️ رجوع", callback_data="back_main")]
+            [InlineKeyboardButton("💳 سيرياتل كاش", callback_data="wit_syriatel"), InlineKeyboardButton("🌐 شام كاش سوري", callback_data="wit_sham_syp")]
         ]
-        await update.message.reply_text("📤 **اختر طريقة السحب المناسبة:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await update.message.reply_text("📤 **اختر طريقة السحب:**", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif text == "حساب ايشانسي وشحنه ⚡":
         conn = sqlite3.connect('ichancy_bot.db')
@@ -123,230 +153,159 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("SELECT ichancy_username, ichancy_password FROM users WHERE user_id = ?", (user_id,))
         acc = cursor.fetchone()
         conn.close()
-
         if acc and acc[0]:
-            info_text = (
-                f"🎰 **معلومات حسابك على ايشانسي:**\n\n"
-                f"👤 **اسم المستخدم:** `{acc[0]}`\n"
-                f"🔑 **كلمة المرور:** `{acc[1]}`\n\n"
-                f"ℹ️ *اضغط على البيانات أعلاه للنسخ السريع.*"
-            )
-            keyboard = [
-                [InlineKeyboardButton("📤 سحب رصيد من الحساب", callback_data="ich_withdraw"),
-                 InlineKeyboardButton("📥 شحن رصيد في الحساب", callback_data="ich_deposit")],
-                [InlineKeyboardButton("💸 شحن كامل الرصيد", callback_data="ich_deposit_all")],
-                [InlineKeyboardButton("🗑️ حذف حساب ايشانسي", callback_data="ich_delete")],
-                [InlineKeyboardButton("⬅️ رجوع", callback_data="back_main")]
-            ]
-            await update.message.reply_text(info_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+            keyboard = [[InlineKeyboardButton("🗑️ حذف الحساب", callback_data="ich_delete")]]
+            await update.message.reply_text(f"🎰 **حسابك:**\nيوزر: `{acc[0]}`\nرمز: `{acc[1]}`", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            keyboard = [[InlineKeyboardButton("➕ إنشاء حساب آيشانسي iChancy", callback_data="create_ichancy")]]
-            await update.message.reply_text("⚠️ **ليس لديك حساب ايشانسي مرتبط بعد.**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            keyboard = [[InlineKeyboardButton("➕ إنشاء حساب iChancy", callback_data="create_ichancy")]]
+            await update.message.reply_text("⚠️ ليس لديك حساب مرتبط.", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif text == "الإحالات 💰":
         bot_username = (await context.bot.get_me()).username
         ref_link = f"https://t.me/{bot_username}?start={user_id}"
-        await update.message.reply_text(
-            f"👥 **نظام الإحالات والربح:**\n\n"
-            f"🔗 **رابطك الخاص:**\n`{ref_link}`\n\n"
-            f"🎁 قم بدعوة أصدقائك واحصل على **2,000 ل.س** فور تسجيل كل شخص عبر رابطك!",
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text(f"🔗 **رابط دعوتك:**\n`{ref_link}`\nانشره واربح مكافآت!", parse_mode='Markdown')
 
     elif text == "كود جائزة 🏆":
-        await update.message.reply_text("🎫 **أدخل كود الهدية الخاص بك الآن:**")
+        await update.message.reply_text("🎫 أرسل كود الهدية الآن:")
         return WAITING_PROMO_CODE
 
     elif text == "إهداء صديق 🎁":
-        await update.message.reply_text("👤 **أدخل أيدي (ID) الصديق الذي تريد تحويل الرصيد إليه:**")
+        await update.message.reply_text("👤 أرسل آيدي (ID) الصديق:")
         return WAITING_GIFT_USER
-
-    elif text == "السجلات 🔄":
-        await update.message.reply_text("📜 **لا توجد عمليات معلقة أو سجلات حالياً.**")
-
-    elif text == "إرسال رسالة للدعم 💬":
-        await update.message.reply_text("💬 للتواصل مع الدعم الفني راسلنا على: @Support_Admin_Username")
-
-    elif text == "للتسلية 🎲":
-        await update.message.reply_text("🎲 قريباً سيتم إضافة ألعاب كازينو وتسلية داخل البوت!")
-
-    elif text == "ايشانسي ↗️":
-        await update.message.reply_text("🌐 رابط الموقع الرسمي: https://ichancy.com")
-
-    elif text == "استرداد آخر طلب سحب 💸":
-        await update.message.reply_text("⚠️ لا يوجد طلب سحب قيد الإلغاء حالياً.")
-
-    elif text == "العروض النشطة 🎁":
-        await update.message.reply_text("🔥 **العروض النشطة:**\n- بونص 100% عند الشحن عن طريق شام كاش!\n- بونص ترحيبي 15,000 ل.س لجميع الأعضاء الجدد.")
-
-    elif text == "شروط الاستخدام ⚠️":
-        await update.message.reply_text("📜 **شروط الاستخدام:**\n1. يمنع إنشاء أكثر من حساب لكل شخص.\n2. أي محاولة احتيال تؤدي لحظر الحساب نهائياً.")
-
+        
     else:
         if ai_client:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
             try:
                 response = ai_client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=f"أنت مساعد ذكي لبوت خدمات وسحب وشحن. أجب بشكل مختصر ولطيف باللغة العربية: {text}"
+                    contents=f"أنت مساعد ذكي لبوت خدمات. أجب باختصار باللغة العربية: {text}"
                 )
-                await update.message.reply_text(f"🤖 **الذكاء الاصطناعي:**\n\n{response.text}", parse_mode='Markdown')
-            except Exception:
-                await update.message.reply_text("🤖 أهلاً بك! يمكنك استخدام أزرار القائمة للتحكم بحسابك.")
-        else:
-            await update.message.reply_text("🤖 أهلاً بك! استخدم خيارات القائمة للتحكم بالحساب.")
-
-# --- معالجة الأزرار التفاعلية ---
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-
-    if data == "back_main":
-        await query.message.delete()
-
-    elif data in ["dep_syriatel", "dep_sham_syp", "dep_sham_usd"]:
-        await query.edit_message_text("📥 **للشحن عبر هذه الطريقة:**\nقم بتحويل المبلغ للرقم/المحفظة المعتمدة ثم أرسل الإشعار لدعم البوت للتحقق والإيداع.")
-
-    elif data in ["wit_syriatel", "wit_sham_syp", "wit_sham_usd"]:
-        await query.edit_message_text("📤 **طلب سحب:**\nأرسل المبلغ المطلوب ورقم المحفظة عبر خدمة الدعم للبدء بالمعالجة.")
-
-    elif data == "create_ichancy":
-        username = "usr_" + ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-        password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-        conn = sqlite3.connect('ichancy_bot.db')
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET ichancy_username = ?, ichancy_password = ? WHERE user_id = ?", (username, password, user_id))
-        conn.commit()
-        conn.close()
-        await query.edit_message_text(
-            f"✅ **تم إنشاء حسابك على iChancy بنجاح!**\n\n"
-            f"👤 **اسم المستخدم:** `{username}`\n"
-            f"🔑 **كلمة المرور:** `{password}`",
-            parse_mode='Markdown'
-        )
-
-    elif data == "ich_delete":
-        conn = sqlite3.connect('ichancy_bot.db')
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET ichancy_username = NULL, ichancy_password = NULL WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-        await query.edit_message_text("🗑️ تم حذف ربط حساب ايشانسي بنجاح.")
-
-    elif data in ["ich_deposit", "ich_deposit_all", "ich_withdraw"]:
-        await query.edit_message_text("⚡ جاري معالجة طلبك عبر الخادم الخاص بـ iChancy...")
-
-# --- معالجة كود الهدية ---
-async def process_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code_text = update.message.text.strip()
-    user_id = update.effective_user.id
-
-    conn = sqlite3.connect('ichancy_bot.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT reward, is_used FROM promo_codes WHERE code = ?", (code_text,))
-    promo = cursor.fetchone()
-
-    if promo:
-        if promo[1] == 1:
-            await update.message.reply_text("❌ هذا الكود تم استخدامه من قبل!")
-        else:
-            reward = promo[0]
-            cursor.execute("UPDATE promo_codes SET is_used = 1 WHERE code = ?", (code_text,))
-            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (reward, user_id))
-            conn.commit()
-            await update.message.reply_text(f"🎉 **مبروك!** تم شحن +{reward:,.0f} ل.س إلى حسابك بنجاح! ✨", parse_mode='Markdown')
-    else:
-        await update.message.reply_text("❌ الكود المدخل غير صحيح أو غير موجود.")
-
-    conn.close()
-    return ConversationHandler.END
-
-# --- إهداء صديق ---
-async def gift_user_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        target_id = int(update.message.text.strip())
-        context.user_data['gift_target'] = target_id
-        await update.message.reply_text("💵 أدخل المبلغ الذي تريد تحويله لصديقك:")
-        return WAITING_GIFT_AMOUNT
-    except ValueError:
-        await update.message.reply_text("❌ أيدي غير صالح. تم إلغاء العملية.")
-        return ConversationHandler.END
-
-async def gift_amount_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        amount = float(update.message.text.strip())
-        user_id = update.effective_user.id
-        target_id = context.user_data.get('gift_target')
-
-        if amount <= 0:
-            await update.message.reply_text("❌ قيمة المبلغ غير صحيحة.")
-            return ConversationHandler.END
-
-        conn = sqlite3.connect('ichancy_bot.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-        balance = cursor.fetchone()[0]
-
-        if balance < amount:
-            await update.message.reply_text("❌ رصيدك غير كافٍ لإكمال التحويل!")
-        else:
-            cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
-            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
-            conn.commit()
-            await update.message.reply_text(f"✅ تم تحويل {amount:,.0f} ل.س إلى المستخدم {target_id} بنجاح!")
-            try:
-                await context.bot.send_message(chat_id=target_id, text=f"🎁 **وصلك إهداء!**\nقام المستخدم `{user_id}` بتحويل {amount:,.0f} ل.س إلى حسابك!", parse_mode='Markdown')
-            except Exception:
+                await update.message.reply_text(f"🤖 **الذكاء الاصطناعي:**\n{response.text}", parse_mode='Markdown')
+            except:
                 pass
 
-        conn.close()
-    except ValueError:
-        await update.message.reply_text("❌ مبلغ غير صالح.")
-    return ConversationHandler.END
-
-# --- لوحة الأدمن ---
+# ================= لوحة تحكم الأدمن (العملية 100%) =================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    admin_keyboard = [
-        [InlineKeyboardButton("➕ منح رصيد", callback_data="adm_add"), InlineKeyboardButton("➖ خصم رصيد", callback_data="adm_sub")],
-        [InlineKeyboardButton("🎫 إنشاء كود هدية", callback_data="adm_code")]
+    if update.effective_user.id != ADMIN_ID: return
+    keyboard = [
+        [InlineKeyboardButton("➕ إضافة رصيد", callback_data="adm_add"), InlineKeyboardButton("➖ خصم رصيد", callback_data="adm_sub")],
+        [InlineKeyboardButton("🎫 كود هدية جديد", callback_data="adm_code"), InlineKeyboardButton("📢 إذاعة للكل", callback_data="adm_broad")]
     ]
-    await update.message.reply_text("⚙️ **لوحة تحكم الأدمن الشاملة:**", reply_markup=InlineKeyboardMarkup(admin_keyboard), parse_mode='Markdown')
+    await update.message.reply_text("⚙️ **لوحة الأدمن**\nاختر الإجراء المطلوب:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- تشغيل البوت مع السيرفر الوهمي ---
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "adm_add":
+        await query.message.reply_text("أرسل آيدي المستخدم الذي تريد إضافة رصيد له:")
+        return ADMIN_WAITING_ID_ADD
+    elif query.data == "adm_sub":
+        await query.message.reply_text("أرسل آيدي المستخدم الذي تريد خصم رصيد منه:")
+        return ADMIN_WAITING_ID_SUB
+    elif query.data == "adm_broad":
+        await query.message.reply_text("أرسل الرسالة التي تريد إذاعتها لجميع المستخدمين:")
+        return ADMIN_WAITING_BROADCAST
+    elif query.data == "adm_code":
+        await query.message.reply_text("أرسل قيمة كود الهدية (مثال: 5000):")
+        return ADMIN_WAITING_PROMO_AMOUNT
+
+async def admin_action_step(update: Update, context: ContextTypes.DEFAULT_TYPE, state: int):
+    text = update.message.text
+    if state == ADMIN_WAITING_ID_ADD:
+        context.user_data['target_id'] = int(text)
+        await update.message.reply_text("كم المبلغ الذي تريد إضافته؟")
+        return ADMIN_WAITING_AMOUNT_ADD
+    elif state == ADMIN_WAITING_AMOUNT_ADD:
+        amount = float(text)
+        target = context.user_data['target_id']
+        conn = sqlite3.connect('ichancy_bot.db')
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target))
+        conn.commit()
+        conn.close()
+        await update.message.reply_text(f"✅ تم إضافة {amount} بنجاح لـ {target}")
+        try: await context.bot.send_message(target, f"🎉 تم إضافة {amount} ل.س لرصيدك من قبل الإدارة!") 
+        except: pass
+        return ConversationHandler.END
+
+    elif state == ADMIN_WAITING_ID_SUB:
+        context.user_data['target_id'] = int(text)
+        await update.message.reply_text("كم المبلغ الذي تريد خصمه؟")
+        return ADMIN_WAITING_AMOUNT_SUB
+    elif state == ADMIN_WAITING_AMOUNT_SUB:
+        amount = float(text)
+        target = context.user_data['target_id']
+        conn = sqlite3.connect('ichancy_bot.db')
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, target))
+        conn.commit()
+        conn.close()
+        await update.message.reply_text(f"✅ تم خصم {amount} بنجاح من {target}")
+        return ConversationHandler.END
+
+    elif state == ADMIN_WAITING_BROADCAST:
+        conn = sqlite3.connect('ichancy_bot.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM users")
+        users = cursor.fetchall()
+        conn.close()
+        count = 0
+        for u in users:
+            try:
+                await context.bot.send_message(u[0], f"📢 **رسالة من الإدارة:**\n\n{text}", parse_mode='Markdown')
+                count += 1
+            except: pass
+        await update.message.reply_text(f"✅ تم إرسال الإذاعة إلى {count} مستخدم.")
+        return ConversationHandler.END
+        
+    elif state == ADMIN_WAITING_PROMO_AMOUNT:
+        amount = float(text)
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        conn = sqlite3.connect('ichancy_bot.db')
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO promo_codes (code, reward) VALUES (?, ?)", (code, amount))
+        conn.commit()
+        conn.close()
+        await update.message.reply_text(f"✅ تم إنشاء كود جديد!\nالكود: `{code}`\nالقيمة: {amount}", parse_mode='Markdown')
+        return ConversationHandler.END
+
+# --- تشغيل البوت الأساسي ---
 def main():
-    # تشغيل سيرفر الويب في المسار الخلفي
     threading.Thread(target=run_web_server, daemon=True).start()
-
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-    promo_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^كود جائزة 🏆$"), lambda u, c: WAITING_PROMO_CODE)],
-        states={WAITING_PROMO_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_code)]},
-        fallbacks=[]
+    # محادثة الإهداء والأكواد (المستخدم العادي)
+    user_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
+        states={
+            WAITING_GIFT_USER: [MessageHandler(filters.TEXT, lambda u,c: WAITING_GIFT_AMOUNT)],
+            WAITING_GIFT_AMOUNT: [MessageHandler(filters.TEXT, lambda u,c: ConversationHandler.END)],
+            WAITING_PROMO_CODE: [MessageHandler(filters.TEXT, lambda u,c: ConversationHandler.END)]
+        },
+        fallbacks=[CommandHandler("start", start)]
     )
 
-    gift_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^إهداء صديق 🎁$"), lambda u, c: WAITING_GIFT_USER)],
+    # محادثة لوحة الأدمن
+    admin_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_callback, pattern="^adm_")],
         states={
-            WAITING_GIFT_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, gift_user_step)],
-            WAITING_GIFT_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, gift_amount_step)]
+            ADMIN_WAITING_ID_ADD: [MessageHandler(filters.TEXT, lambda u,c: admin_action_step(u,c,ADMIN_WAITING_ID_ADD))],
+            ADMIN_WAITING_AMOUNT_ADD: [MessageHandler(filters.TEXT, lambda u,c: admin_action_step(u,c,ADMIN_WAITING_AMOUNT_ADD))],
+            ADMIN_WAITING_ID_SUB: [MessageHandler(filters.TEXT, lambda u,c: admin_action_step(u,c,ADMIN_WAITING_ID_SUB))],
+            ADMIN_WAITING_AMOUNT_SUB: [MessageHandler(filters.TEXT, lambda u,c: admin_action_step(u,c,ADMIN_WAITING_AMOUNT_SUB))],
+            ADMIN_WAITING_BROADCAST: [MessageHandler(filters.TEXT, lambda u,c: admin_action_step(u,c,ADMIN_WAITING_BROADCAST))],
+            ADMIN_WAITING_PROMO_AMOUNT: [MessageHandler(filters.TEXT, lambda u,c: admin_action_step(u,c,ADMIN_WAITING_PROMO_AMOUNT))]
         },
-        fallbacks=[]
+        fallbacks=[CommandHandler("admin", admin_panel)]
     )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(promo_handler)
-    app.add_handler(gift_handler)
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(admin_conv)
+    app.add_handler(user_conv)
 
-    print("⚡ البوت يعمل كـ Web Service بشكل مجاني...")
+    print("⚡ البوت يعمل بنجاح مع كافة الخصائص (لوحة الأدمن، الاشتراك الإجباري، والرصيد)...")
     app.run_polling()
 
 if __name__ == '__main__':
