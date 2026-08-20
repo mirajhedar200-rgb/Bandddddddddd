@@ -2,6 +2,8 @@ import os
 import sqlite3
 import random
 import string
+import threading
+from flask import Flask
 from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -10,15 +12,26 @@ from telegram.ext import (
 )
 from database import init_db
 
-# تهيئة قاعدة البيانات عند بدء البوت
+# --- تشغيل سيرفر وهمي لإرضاء Render على الخطة المجانية ---
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return "Bot is running perfectly!"
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host="0.0.0.0", port=port)
+
+# تهيئة قاعدة البيانات
 init_db()
 
-# جلب البيانات من متغيرات البيئة (Environment Variables) في Render
+# جلب البيانات من متغيرات البيئة
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_KEY")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
 
-# تهيئة عميل الذكاء الاصطناعي الجيل الجديد من جوجل
+# تهيئة عميل الذكاء الاصطناعي
 if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_KEY":
     ai_client = genai.Client(api_key=GEMINI_API_KEY)
 else:
@@ -170,7 +183,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📜 **شروط الاستخدام:**\n1. يمنع إنشاء أكثر من حساب لكل شخص.\n2. أي محاولة احتيال تؤدي لحظر الحساب نهائياً.")
 
     else:
-        # الذكاء الاصطناعي المعدل والمتوافق مع الموديلات الحديثة
         if ai_client:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
             try:
@@ -184,7 +196,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("🤖 أهلاً بك! استخدم خيارات القائمة للتحكم بالحساب.")
 
-# --- معالجة الأزرار التفاعلية (Callback Query) ---
+# --- معالجة الأزرار التفاعلية ---
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -305,8 +317,11 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("⚙️ **لوحة تحكم الأدمن الشاملة:**", reply_markup=InlineKeyboardMarkup(admin_keyboard), parse_mode='Markdown')
 
-# --- تشغيل البوت ---
+# --- تشغيل البوت مع السيرفر الوهمي ---
 def main():
+    # تشغيل سيرفر الويب في المسار الخلفي
+    threading.Thread(target=run_web_server, daemon=True).start()
+
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     promo_handler = ConversationHandler(
@@ -331,7 +346,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("⚡ البوت يعمل بكامل الخصائص والميزات...")
+    print("⚡ البوت يعمل كـ Web Service بشكل مجاني...")
     app.run_polling()
 
 if __name__ == '__main__':
