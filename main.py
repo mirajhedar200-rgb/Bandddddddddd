@@ -2,7 +2,7 @@ import os
 import sqlite3
 import random
 import string
-import google.generativeai as genai
+from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
@@ -10,27 +10,23 @@ from telegram.ext import (
 )
 from database import init_db
 
-# تهيئة قاعدة البيانات
+# تهيئة قاعدة البيانات عند بدء البوت
 init_db()
 
-# جلب المفاتيح من متغيرات البيئة (Environment Variables)
+# جلب البيانات من متغيرات البيئة (Environment Variables) في Render
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_KEY")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
 
-# إعداد الذكاء الاصطناعي
+# تهيئة عميل الذكاء الاصطناعي الجيل الجديد من جوجل
 if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_KEY":
-    genai.configure(api_key=GEMINI_API_KEY)
-    ai_model = genai.GenerativeModel('gemini-pro')
+    ai_client = genai.Client(api_key=GEMINI_API_KEY)
 else:
-    ai_model = None
+    ai_client = None
 
 # حالات المحادثة
 WAITING_GIFT_USER, WAITING_GIFT_AMOUNT = range(2)
 WAITING_PROMO_CODE = range(2, 3)
-WAITING_ICHANCY_CREATE = range(3, 4)
-WAITING_ADM_ADD_ID, WAITING_ADM_ADD_AMT = range(4, 6)
-WAITING_ADM_CODE, WAITING_ADM_CODE_AMT = range(6, 8)
 
 # --- القائمة الرئيسية ---
 def main_keyboard():
@@ -85,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text, parse_mode='Markdown', reply_markup=main_keyboard())
 
-# --- معالجة أزرار القائمة الرئيسية ---
+# --- معالجة أزرار القائمة والرسائل العامة ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
@@ -156,7 +152,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📜 **لا توجد عمليات معلقة أو سجلات حالياً.**")
 
     elif text == "إرسال رسالة للدعم 💬":
-        await update.message.reply_text("💬 للتواصل مع الدعم الفني اراسلنا على: @Support_Admin_Username")
+        await update.message.reply_text("💬 للتواصل مع الدعم الفني راسلنا على: @Support_Admin_Username")
 
     elif text == "للتسلية 🎲":
         await update.message.reply_text("🎲 قريباً سيتم إضافة ألعاب كازينو وتسلية داخل البوت!")
@@ -171,21 +167,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔥 **العروض النشطة:**\n- بونص 100% عند الشحن عن طريق شام كاش!\n- بونص ترحيبي 15,000 ل.س لجميع الأعضاء الجدد.")
 
     elif text == "شروط الاستخدام ⚠️":
-        await update.message.reply_text("📜 **شروط الاستخدام:**\n1. يمنع إنشائ أكثر من حساب لكل شخص.\n2. أي محاولة احتيال تؤدي لحظر الحساب نهائياً.")
+        await update.message.reply_text("📜 **شروط الاستخدام:**\n1. يمنع إنشاء أكثر من حساب لكل شخص.\n2. أي محاولة احتيال تؤدي لحظر الحساب نهائياً.")
 
     else:
-        # الذكاء الاصطناعي للرد على الاستفسارات العامة
-        if ai_model:
+        # الذكاء الاصطناعي المعدل والمتوافق مع الموديلات الحديثة
+        if ai_client:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
             try:
-                response = ai_model.generate_content(f"أنت مساعد ذكي لبوت خدمات وسحب وشحن. أجب بشكل مختصر ولطيف باللغة العربية: {text}")
+                response = ai_client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=f"أنت مساعد ذكي لبوت خدمات وسحب وشحن. أجب بشكل مختصر ولطيف باللغة العربية: {text}"
+                )
                 await update.message.reply_text(f"🤖 **الذكاء الاصطناعي:**\n\n{response.text}", parse_mode='Markdown')
             except Exception:
                 await update.message.reply_text("🤖 أهلاً بك! يمكنك استخدام أزرار القائمة للتحكم بحسابك.")
         else:
             await update.message.reply_text("🤖 أهلاً بك! استخدم خيارات القائمة للتحكم بالحساب.")
 
-# --- معالجة الكولباك والأزرار التفاعلية ---
+# --- معالجة الأزرار التفاعلية (Callback Query) ---
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -199,7 +198,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📥 **للشحن عبر هذه الطريقة:**\nقم بتحويل المبلغ للرقم/المحفظة المعتمدة ثم أرسل الإشعار لدعم البوت للتحقق والإيداع.")
 
     elif data in ["wit_syriatel", "wit_sham_syp", "wit_sham_usd"]:
-        await query.edit_message_text("📤 **طلب سحب:**\nأرسل المبلغ المطلوب وسلسلة رقم المحفظة عبر خدمة الدعم للبدء بالمعالجة.")
+        await query.edit_message_text("📤 **طلب سحب:**\nأرسل المبلغ المطلوب ورقم المحفظة عبر خدمة الدعم للبدء بالمعالجة.")
 
     elif data == "create_ichancy":
         username = "usr_" + ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
@@ -227,7 +226,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data in ["ich_deposit", "ich_deposit_all", "ich_withdraw"]:
         await query.edit_message_text("⚡ جاري معالجة طلبك عبر الخادم الخاص بـ iChancy...")
 
-# --- كود جائزة (Promo Code) ---
+# --- معالجة كود الهدية ---
 async def process_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code_text = update.message.text.strip()
     user_id = update.effective_user.id
@@ -279,14 +278,14 @@ async def gift_amount_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
         balance = cursor.fetchone()[0]
 
         if balance < amount:
-            await update.message.reply_text("❌ رصيدك غير كافي لإكمال التحويل!")
+            await update.message.reply_text("❌ رصيدك غير كافٍ لإكمال التحويل!")
         else:
             cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
             cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
             conn.commit()
             await update.message.reply_text(f"✅ تم تحويل {amount:,.0f} ل.س إلى المستخدم {target_id} بنجاح!")
             try:
-                await context.bot.send_message(chat_id=target_id, text=f"🎁 **وصَلك إهداء!**\nقام المستخدم `{user_id}` بتحويل {amount:,.0f} ل.س إلى حسابك!", parse_mode='Markdown')
+                await context.bot.send_message(chat_id=target_id, text=f"🎁 **وصلك إهداء!**\nقام المستخدم `{user_id}` بتحويل {amount:,.0f} ل.س إلى حسابك!", parse_mode='Markdown')
             except Exception:
                 pass
 
@@ -310,7 +309,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # محادثات الإدخال المتعدد
     promo_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^كود جائزة 🏆$"), lambda u, c: WAITING_PROMO_CODE)],
         states={WAITING_PROMO_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_code)]},
