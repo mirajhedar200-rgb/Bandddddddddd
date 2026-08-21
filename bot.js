@@ -27,7 +27,6 @@ function calculatePrize(openedCount) {
     } 
 } 
 
-// الحصول على قناة الاشتراك الإجباري الديناميكية من قاعدة البيانات
 function getRequiredChannel() {
     return new Promise((resolve) => {
         db.get('SELECT value FROM settings WHERE key = "channel_username"', (err, row) => {
@@ -40,7 +39,6 @@ function getRequiredChannel() {
     });
 }
 
-// فحص الاشتراك الإجباري
 async function checkSubscription(ctx, next) { 
     if (ctx.from && ctx.from.id === ADMIN_ID) return next(); 
     try { 
@@ -72,7 +70,7 @@ bot.start(checkSubscription, async (ctx) => {
             db.run('INSERT INTO users (user_id, username, referred_by) VALUES (?, ?, ?)', [userId, ctx.from.username || '', referrer], () => { 
                 if (referrer) { 
                     db.run('UPDATE users SET referral_balance = referral_balance + 300 WHERE user_id = ?', [referrer]); 
-                    bot.telegram.sendMessage(referrer, '🎉 قام شخص بالتسجيل عبر رابط إحالتك! تمت إضافة 300 ل.س لرصيد الإحالات الخاص بك.'); 
+                    bot.telegram.sendMessage(referrer, '🎉 قام شخص بالتسجيل عبر رابط إحالتك! تمت إضافة 300 ل.س لرصيد الإحالات الخاص بك.').catch(() => {}); 
                 } 
                 showWelcomeAndTerms(ctx); 
             }); 
@@ -270,7 +268,6 @@ bot.action('set_channel', (ctx) => {
     ctx.reply('📢 أرسل معرف القناة الجديدة مع الـ `@` (تأكد أن البوت مشرف داخل القناة):\nمثال: `@MyNewChannel`'); 
 }); 
 
-// --- استقبال النصوص --- 
 bot.on('text', checkSubscription, (ctx) => { 
     const userId = ctx.from.id; 
     const state = userState[userId]; 
@@ -325,10 +322,7 @@ bot.on('text', checkSubscription, (ctx) => {
             }
 
             db.run('UPDATE users SET balance = balance + ? WHERE user_id = ?', [amount, targetId], function(err) { 
-                if (err) {
-                    console.error(err);
-                    return ctx.reply('❌ حدث خطأ أثناء الاتصال بقاعدة البيانات.');
-                }
+                if (err) return ctx.reply('❌ حدث خطأ أثناء الاتصال بقاعدة البيانات.');
                 if (this.changes === 0) return ctx.reply('❌ هذا المستخدم غير موجود في البوت!'); 
                 
                 ctx.reply(`✅ تمت إضافة ${amount.toLocaleString()} ل.س للمستخدم \`${targetId}\` بنجاح.`, { parse_mode: 'Markdown' }); 
@@ -346,10 +340,7 @@ bot.on('text', checkSubscription, (ctx) => {
             }
 
             db.run('UPDATE users SET balance = balance - ? WHERE user_id = ?', [amount, targetId], function(err) { 
-                if (err) {
-                    console.error(err);
-                    return ctx.reply('❌ حدث خطأ أثناء الاتصال بقاعدة البيانات.');
-                }
+                if (err) return ctx.reply('❌ حدث خطأ أثناء الاتصال بقاعدة البيانات.');
                 if (this.changes === 0) return ctx.reply('❌ هذا المستخدم غير موجود في البوت!'); 
                 
                 ctx.reply(`✅ تم خصم ${amount.toLocaleString()} ل.س من المستخدم \`${targetId}\` بنجاح.`, { parse_mode: 'Markdown' }); 
@@ -406,12 +397,12 @@ bot.on('text', checkSubscription, (ctx) => {
         delete userState[userId]; 
         db.run('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, "recharge", 0, "pending", ?)', [userId, text]); 
         ctx.reply('✅ تم إرسال طلب الشحن بنجاح للادارة! سيتم مراجعته وإضافة الرصيد لحسابك.'); 
-        bot.telegram.sendMessage(ADMIN_ID, `📩 **طلب شحن جديد!**\n\n👤 المستخدم: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }); 
+        bot.telegram.sendMessage(ADMIN_ID, `📩 **طلب شحن جديد!**\n\n👤 المستخدم: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
     } else if (state.step === 'awaiting_withdraw') { 
         delete userState[userId]; 
         db.run('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, "withdraw", 0, "pending", ?)', [userId, text]); 
         ctx.reply('✅ تم إرسال طلب السحب بنجاح للإدارة! سيتم المعالجة قريباً.'); 
-        bot.telegram.sendMessage(ADMIN_ID, `💸 **طلب سحب جديد!**\n\n👤 المستخدم: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }); 
+        bot.telegram.sendMessage(ADMIN_ID, `💸 **طلب سحب جديد!**\n\n👤 المستخدم: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
     } else if (state.step === 'awaiting_promo') { 
         delete userState[userId]; 
         db.get('SELECT reward, uses_left FROM promo_codes WHERE code = ?', [text], (err, code) => { 
@@ -427,14 +418,12 @@ bot.on('text', checkSubscription, (ctx) => {
     } 
 }); 
 
-// Keep-Alive
 setInterval(() => { 
     axios.get(RENDER_URL) 
         .then(() => console.log('⚡ Keep-Alive Active: Render is running...')) 
         .catch((err) => console.log('⚡ Keep-Alive Ping:', err.message)); 
 }, 3 * 60 * 1000); 
 
-// إرسال واجهة صفحة الـ WebApp للزر بشكل مباشر
 app.get('*', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -495,17 +484,26 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000; 
+
 app.listen(PORT, async () => { 
     console.log(`Server listening on port ${PORT}`); 
     
     try {
+        // حذف الـ Webhook القديم للتأكد من استخدام Polling وتفادي التعارض
+        await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+        
+        await bot.launch();
+        console.log('✅ Telegram Bot is connected and listening to messages!');
+
         await bot.telegram.setMyCommands([
             { command: 'start', description: 'البدء / القائمة الرئيسية' },
             { command: 'admin', description: 'لوحة التحكم (للأدمن)' }
         ]);
-    } catch (e) {
-        console.log('Error setting commands:', e.message);
+    } catch (err) {
+        console.error('❌ Failed to connect Telegram Bot:', err.message);
     }
-    
-    bot.launch(); 
 });
+
+// إغلاق البوت بسلاسة عند إعادة التشغيل
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
