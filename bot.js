@@ -1,4 +1,4 @@
-const { Telegraf, Markup } = require('telegraf');
+دconst { Telegraf, Markup } = require('telegraf');
 const express = require('express');
 const axios = require('axios');
 const db = require('./database');
@@ -37,8 +37,7 @@ async function checkSubscription(ctx, next) {
         if (['creator', 'administrator', 'member'].includes(member.status)) {
             return next();
         }
-        return ctx.reply(`📢 أهلاً بك! يرجى الاشتراك في القناة أولاً لاستخدام البوت:
-${CHANNEL_USERNAME}`,
+        return ctx.reply(`📢 أهلاً بك! يرجى الاشتراك في القناة أولاً لاستخدام البوت:\n${CHANNEL_USERNAME}`,
             Markup.inlineKeyboard([
                 [Markup.button.url('📢 اشترك بالقناة', `https://t.me/${CHANNEL_USERNAME.replace('@','')}`)],
                 [Markup.button.callback('✅ تحقق من الاشتراك', 'verify_sub')]
@@ -74,13 +73,13 @@ bot.start(async (ctx) => {
 });
 
 function showWelcomeAndTerms(ctx) {
-    ctx.reply('👋 **أهلاً بك في بوت Green Lucky Box 🌿**
+    ctx.reply(`👋 **أهلاً بك في بوت Green Lucky Box 🌿**
 
 📜 **شروط الاستخدام:**
 1. يمنع استخدام أي أساليب غش أو ثغرات.
 2. التقيد باللعب العادل.
 
-يرجى الضغط على القبول للمتابعة:',
+يرجى الضغط على القبول للمتابعة:`,
         Markup.inlineKeyboard([
             [Markup.button.callback('✅ أوافق على الشروط والأحكام', 'accept_terms')]
         ])
@@ -106,11 +105,7 @@ function showMainMenu(ctx) {
         const refBalance = row ? row.referral_balance : 0;
 
         ctx.replyWithHTML(
-            `🌿 <b>أهلاً بك في Green Lucky Box</b>
-
-🆔 <b>معرفك (ID):</b> <code>${userId}</code>
-💰 <b>الرصيد الرئيسي:</b> ${balance.toLocaleString()} ل.س
-👥 <b>رصيد الإحالات:</b> ${refBalance.toLocaleString()} ل.س`,
+            `🌿 <b>أهلاً بك في Green Lucky Box</b>\n\n🆔 <b>معرفك (ID):</b> <code>${userId}</code>\n💰 <b>الرصيد الرئيسي:</b> ${balance.toLocaleString()} ل.س\n👥 <b>رصيد الإحالات:</b> ${refBalance.toLocaleString()} ل.س`,
             Markup.keyboard([
                 ['🎁 فتح الصندوق'],
                 ['💳 شحن رصيد', '💸 سحب رصيد'],
@@ -163,12 +158,7 @@ bot.hears('💳 شحن رصيد', checkSubscription, (ctx) => {
     userState[ctx.from.id] = { step: 'awaiting_recharge' };
     db.get('SELECT value FROM settings WHERE key = "syriatel_info"', (err, row) => {
         const info = row ? row.value : 'يرجى التحويل لسيريتل كاش على الرقم المعين من الإدارة.';
-        ctx.reply(`💳 **شحن الرصيد بواسطة سيريتل كاش**
-
-📌 **معلومات الشحن:**
-${info}
-
-يرجى إرسال **المبلغ + رقم العملية** في رسالة واحدة:`);
+        ctx.reply(`💳 **شحن الرصيد بواسطة سيريتل كاش**\n\n📌 **معلومات الشحن:**\n${info}\n\nيرجى إرسال **المبلغ + رقم العملية** في رسالة واحدة:`);
     });
 });
 
@@ -176,12 +166,7 @@ bot.hears('💸 سحب رصيد', checkSubscription, (ctx) => {
     userState[ctx.from.id] = { step: 'awaiting_withdraw' };
     db.get('SELECT value FROM settings WHERE key = "withdraw_info"', (err, row) => {
         const info = row ? row.value : 'ادخل عنوان استلام الأرباح والمبلغ المراد سحبه.';
-        ctx.reply(`💸 **سحب الأرباح**
-
-📌 **معلومات السحب:**
-${info}
-
-يرجى إرسال **عنوان الاستلام + المبلغ**:`);
+        ctx.reply(`💸 **سحب الأرباح**\n\n📌 **معلومات السحب:**\n${info}\n\nيرجى إرسال **عنوان الاستلام + المبلغ**:`);
     });
 });
 
@@ -195,29 +180,17 @@ bot.hears('👥 الإحالات', checkSubscription, (ctx) => {
     const link = `https://t.me/${ctx.botInfo.username}?start=${userId}`;
     db.get('SELECT referral_balance FROM users WHERE user_id = ?', [userId], (err, row) => {
         const refBalance = row ? row.referral_balance : 0;
-        ctx.reply(`👥 **نظام الإحالات**
-
-🔗 **رابط الإحالة الخاص بك:**
-\`${link}\` 
-
-💰 **رصيد الإحالات الحالي:** ${refBalance.toLocaleString()} ل.س
-
-*(ملاحظة: تحصل على 300 ل.س لكل صديق يدخل عبر رابطك. رصيد الإحالات يضاف في خانة منفردة ويمكنك سحبه).*`, { parse_mode: 'Markdown' });
+        ctx.reply(`👥 **نظام الإحالات**\n\n🔗 **رابط الإحالة الخاص بك:**\n\`${link}\` \n\n💰 **رصيد الإحالات الحالي:** ${refBalance.toLocaleString()} ل.س\n\n*(ملاحظة: تحصل على 300 ل.س لكل صديق يدخل عبر رابطك. رصيد الإحالات يضاف في خانة منفردة ويمكنك سحبه).*`, { parse_mode: 'Markdown' });
     });
 });
 
 bot.hears('📊 السجل', checkSubscription, (ctx) => {
     db.all('SELECT type, amount, status, created_at FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 5', [ctx.from.id], (err, rows) => {
         if (!rows || rows.length === 0) return ctx.reply('📊 لا يوجد لديك عمليات شحن أو سحب سابقة.');
-        let text = '📊 **سجل عملياتك الأخيرة:**
-
-';
+        let text = '📊 **سجل عملياتك الأخيرة:**\n\n';
         rows.forEach((r, i) => {
             const typeText = r.type === 'recharge' ? '💳 شحن' : '💸 سحب';
-            text += `${i + 1}. ${typeText} - ${r.amount.toLocaleString()} ل.س (${r.status})
-📅 ${r.created_at}
-
-`;
+            text += `${i + 1}. ${typeText} - ${r.amount.toLocaleString()} ل.س (${r.status})\n📅 ${r.created_at}\n\n`;
         });
         ctx.reply(text);
     });
@@ -227,18 +200,12 @@ bot.hears('👤 معلومات حسابي', checkSubscription, (ctx) => {
     db.get('SELECT balance, referral_balance, opened_count, joined_at FROM users WHERE user_id = ?', [ctx.from.id], (err, row) => {
         if (!row) return;
         ctx.replyWithHTML(
-            `👤 **معلومات حسابك الشخصي:**
-
-` +
-            `🆔 **ID:** <code>${ctx.from.id}</code>
-` +
-            `💰 **الرصيد الرئيسي:** ${row.balance.toLocaleString()} ل.س
-` +
-            `👥 **رصيد الإحالات:** ${row.referral_balance.toLocaleString()} ل.س
-` +
-            `📦 **عدد مرات فتح الصندوق:** ${row.opened_count} مرة
-` +
-            `📅 **تاريخ الانضمام:** ${row.joined_at}`
+            `👤 <b>معلومات حسابك الشخصي:</b>\n\n` +
+            `🆔 <b>ID:</b> <code>${ctx.from.id}</code>\n` +
+            `💰 <b>الرصيد الرئيسي:</b> ${row.balance.toLocaleString()} ل.س\n` +
+            `👥 <b>رصيد الإحالات:</b> ${row.referral_balance.toLocaleString()} ل.س\n` +
+            `📦 <b>عدد مرات فتح الصندوق:</b> ${row.opened_count} مرة\n` +
+            `📅 <b>تاريخ الانضمام:</b> ${row.joined_at}`
         );
     });
 });
@@ -257,15 +224,13 @@ bot.command('admin', (ctx) => {
 bot.action('admin_add_bal', (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
     userState[ADMIN_ID] = { step: 'awaiting_add_bal' };
-    ctx.reply('➕ أرسل **ID المستخدم + المبلغ** بهذا الشكل:
-`123456789 5000`', { parse_mode: 'Markdown' });
+    ctx.reply('➕ أرسل **ID المستخدم + المبلغ** بهذا الشكل:\n`123456789 5000`', { parse_mode: 'Markdown' });
 });
 
 bot.action('admin_sub_bal', (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
     userState[ADMIN_ID] = { step: 'awaiting_sub_bal' };
-    ctx.reply('➖ أرسل **ID المستخدم + المبلغ المراد خصمه** بهذا الشكل:
-`123456789 2000`', { parse_mode: 'Markdown' });
+    ctx.reply('➖ أرسل **ID المستخدم + المبلغ المراد خصمه** بهذا الشكل:\n`123456789 2000`', { parse_mode: 'Markdown' });
 });
 
 bot.action('admin_user_history', (ctx) => {
@@ -320,29 +285,18 @@ bot.on('text', checkSubscription, (ctx) => {
                 if (!user) return ctx.reply('❌ المستخدم غير موجود في قاعدة البيانات.');
 
                 db.all('SELECT type, amount, status, details, created_at FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 5', [targetId], (err, txs) => {
-                    let report = `👤 **بيانات المستخدم:** \`${targetId}\`
-
-` +
-                                 `💰 الرصيد الرئيسي: ${user.balance} ل.س
-` +
-                                 `👥 رصيد الإحالات: ${user.referral_balance} ل.س
-` +
-                                 `📦 فتحات الصندوق: ${user.opened_count}
-
-` +
-                                 `📊 **أحدث عمليات الشحن والسحب:**
-`;
+                    let report = `👤 **بيانات المستخدم:** \`${targetId}\`\n\n` +
+                                 `💰 الرصيد الرئيسي: ${user.balance} ل.س\n` +
+                                 `👥 رصيد الإحالات: ${user.referral_balance} ل.س\n` +
+                                 `📦 فتحات الصندوق: ${user.opened_count}\n\n` +
+                                 `📊 **أحدث عمليات الشحن والسحب:**\n`;
 
                     if (!txs || txs.length === 0) {
                         report += 'لا توجد عمليات سابقة.';
                     } else {
                         txs.forEach((t, i) => {
                             const typeStr = t.type === 'recharge' ? '💳 شحن' : '💸 سحب';
-                            report += `${i + 1}. ${typeStr} | الحالة: ${t.status}
-التفاصيل: ${t.details}
-📅 ${t.created_at}
-
-`;
+                            report += `${i + 1}. ${typeStr} | الحالة: ${t.status}\nالتفاصيل: ${t.details}\n📅 ${t.created_at}\n\n`;
                         });
                     }
                     ctx.reply(report, { parse_mode: 'Markdown' });
@@ -378,19 +332,13 @@ bot.on('text', checkSubscription, (ctx) => {
         delete userState[userId];
         db.run('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, "recharge", 0, "pending", ?)', [userId, text]);
         ctx.reply('✅ تم إرسال طلب الشحن بنجاح للادارة! سيتم مراجعته وإضافة الرصيد لحسابك.');
-        bot.telegram.sendMessage(ADMIN_ID, `📩 **طلب شحن جديد!**
-
-👤 المستخدم: ${userId}
-📝 التفاصيل: ${text}`);
+        bot.telegram.sendMessage(ADMIN_ID, `📩 **طلب شحن جديد!**\n\n👤 المستخدم: ${userId}\n📝 التفاصيل: ${text}`);
     } 
     else if (state.step === 'awaiting_withdraw') {
         delete userState[userId];
         db.run('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, "withdraw", 0, "pending", ?)', [userId, text]);
         ctx.reply('✅ تم إرسال طلب السحب بنجاح للإدارة! سيتم المعالجة قريباً.');
-        bot.telegram.sendMessage(ADMIN_ID, `💸 **طلب سحب جديد!**
-
-👤 المستخدم: ${userId}
-📝 التفاصيل: ${text}`);
+        bot.telegram.sendMessage(ADMIN_ID, `💸 **طلب سحب جديد!**\n\n👤 المستخدم: ${userId}\n📝 التفاصيل: ${text}`);
     }
     else if (state.step === 'awaiting_promo') {
         delete userState[userId];
