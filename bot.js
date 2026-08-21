@@ -1,7 +1,6 @@
 const { Telegraf, Markup } = require('telegraf'); 
 const express = require('express'); 
 const axios = require('axios'); 
-const path = require('path');
 const db = require('./database'); 
 
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE'; 
@@ -13,7 +12,6 @@ const bot = new Telegraf(BOT_TOKEN);
 const app = express(); 
 
 app.use(express.json()); 
-app.use(express.static(path.join(__dirname, 'public'))); 
 
 const userState = {}; 
 
@@ -50,7 +48,6 @@ async function checkSubscription(ctx, next) {
     } 
 } 
 
-// تفعيل فحص الاشتراك الإجباري عند إرسال /start مباشرة
 bot.start(checkSubscription, async (ctx) => { 
     const userId = ctx.from.id; 
     const startParam = ctx.payload; 
@@ -336,16 +333,70 @@ setInterval(() => {
         .catch((err) => console.log('⚡ Keep-Alive Ping:', err.message)); 
 }, 3 * 60 * 1000); 
 
-// إرسال ملف الـ WebApp مباشرة
+// إرسال واجهة صفحة الـ WebApp للزر بشكل مباشر وبدون ملفات خارجية
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.send(`
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Green Lucky Box</title>
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <style>
+            body { font-family: system-ui, sans-serif; text-align: center; padding: 30px 15px; background: #121212; color: #fff; margin: 0; }
+            .card { background: #1e1e1e; padding: 25px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+            h1 { color: #28a745; margin-bottom: 10px; }
+            p { font-size: 16px; color: #ccc; }
+            button { width: 100%; max-width: 300px; padding: 15px; font-size: 18px; font-weight: bold; background: #28a745; color: white; border: none; border-radius: 10px; cursor: pointer; margin-top: 20px; transition: 0.2s; }
+            button:active { transform: scale(0.98); }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>🌿 Green Lucky Box 🎁</h1>
+            <p>اضغط أسفله لتجربة حظك وفتح الصندوق!</p>
+            <button onclick="openBox()">📦 افتح الصندوق (2000 ل.س)</button>
+        </div>
+
+        <script>
+            const tg = window.Telegram.WebApp;
+            tg.expand();
+
+            function openBox() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const userId = urlParams.get('user_id');
+
+                if (!userId) {
+                    alert('❌ لا يمكن التعرف على حسابك، يرجى الفتح من داخل التلغرام.');
+                    return;
+                }
+
+                fetch('/api/open-box', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(\`🎉 مبروك! ربحت \${data.prize} ل.س!\\nرصيدك الجديد: \${data.newBalance} ل.س\`);
+                    } else {
+                        alert(\`❌ \${data.message}\`);
+                    }
+                })
+                .catch(() => alert('❌ حدث خطأ أثناء الاتصال بالسيرفر.'));
+            }
+        </script>
+    </body>
+    </html>
+    `);
 });
 
 const PORT = process.env.PORT || 3000; 
 app.listen(PORT, async () => { 
     console.log(`Server listening on port ${PORT}`); 
     
-    // إرسال زر قائمة /start للتلغرام
     try {
         await bot.telegram.setMyCommands([
             { command: 'start', description: 'البدء / القائمة الرئيسية' },
