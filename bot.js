@@ -76,7 +76,7 @@ async function initTables() {
 }
 initTables();
 
-// التحقق من الاشتراك دون مسح حالة الأزرار الخاصة بالأدمن
+// التحقق من الاشتراك
 async function checkSubscription(ctx, next) { 
     if (ctx.from && ctx.from.id === ADMIN_ID) return next(); 
     try { 
@@ -265,17 +265,17 @@ bot.on('text', async (ctx, next) => {
     if (userId === ADMIN_ID) {
         if (state.step === 'admin_set_recharge') {
             delete userState[ADMIN_ID];
-            await runDB('INSERT INTO settings (key, value) VALUES (\'syriatel_info\', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
+            await runDB("INSERT INTO settings (key, value) VALUES ('syriatel_info', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [text]);
             return ctx.reply('✅ تم تحديث تعليمات الشحن وحفظها في قاعدة البيانات بنجاح!');
         }
         if (state.step === 'admin_set_withdraw') {
             delete userState[ADMIN_ID];
-            await runDB('INSERT INTO settings (key, value) VALUES (\'withdraw_info\', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
+            await runDB("INSERT INTO settings (key, value) VALUES ('withdraw_info', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [text]);
             return ctx.reply('✅ تم تحديث تعليمات السحب وحفظها في قاعدة البيانات بنجاح!');
         }
         if (state.step === 'admin_set_channel') {
             delete userState[ADMIN_ID];
-            await runDB('INSERT INTO settings (key, value) VALUES (\'channel_username\', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
+            await runDB("INSERT INTO settings (key, value) VALUES ('channel_username', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [text]);
             return ctx.reply(`✅ تم تحديث قناة الاشتراك إلى: ${text}`);
         }
     }
@@ -283,7 +283,7 @@ bot.on('text', async (ctx, next) => {
     // 2. معالجة طلبات المستخدمين (شحن، سحب، كود)
     if (state.step === 'user_req_recharge') { 
         delete userState[userId]; 
-        await runDB('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, 'recharge', 0, 'pending', ?)', [userId, text]); 
+        await runDB("INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, 'recharge', 0, 'pending', ?)", [userId, text]); 
         ctx.reply('✅ تم إرسال طلب الشحن للإدارة بنجاح.'); 
         bot.telegram.sendMessage(ADMIN_ID, `📩 **طلب شحن جديد!**\n👤 من: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
         return;
@@ -291,7 +291,7 @@ bot.on('text', async (ctx, next) => {
 
     if (state.step === 'user_req_withdraw') { 
         delete userState[userId]; 
-        await runDB('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, 'withdraw', 0, 'pending', ?)', [userId, text]); 
+        await runDB("INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, 'withdraw', 0, 'pending', ?)", [userId, text]); 
         ctx.reply('✅ تم إرسال طلب السحب للإدارة بنجاح.'); 
         bot.telegram.sendMessage(ADMIN_ID, `💸 **طلب سحب جديد!**\n👤 من: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
         return;
