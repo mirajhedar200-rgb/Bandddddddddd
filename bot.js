@@ -168,6 +168,23 @@ async function showMainMenu(ctx) {
 
 // ==================== أزرار المستخدمين ====================
 
+// زر فتح الصندوق
+bot.hears('🎁 فتح الصندوق', checkSubscription, async (ctx) => {
+    const userId = ctx.from.id;
+    try {
+        const rows = await queryDB('SELECT balance FROM users WHERE user_id = ?', [userId]);
+        const balance = (rows && rows.length > 0) ? rows[0].balance : 0;
+        
+        // يمكنك تعديل تكلفة فتح الصندوق أو الجائزة حسب رغبتك هنا
+        const prize = Math.floor(Math.random() * 500) + 100; // جائزة عشوائية تجريبية
+        await runDB('UPDATE users SET balance = balance + ?, opened_count = opened_count + 1 WHERE user_id = ?', [prize, userId]);
+        
+        ctx.reply(`🎁 **مبروك! لقد فتحت الصندوق بنجاح**\n🎉 ربحت جائزة قيمتها: **${prize.toLocaleString()} ل.س**`);
+    } catch (e) {
+        ctx.reply('❌ حدث خطأ أثناء فتح الصندوق، حاول مرة أخرى.');
+    }
+});
+
 bot.hears('💳 شحن رصيد', checkSubscription, async (ctx) => { 
     userState[ctx.from.id] = { step: 'user_req_recharge' }; 
     const rows = await queryDB('SELECT value FROM settings WHERE key = ?', ['syriatel_info']);
@@ -218,7 +235,7 @@ bot.hears('👤 معلومات حسابي', checkSubscription, async (ctx) => {
     const rows = await queryDB('SELECT balance, referral_balance, opened_count FROM users WHERE user_id = ?', [ctx.from.id]);
     if (!rows || rows.length === 0) return; 
     const u = rows[0];
-    ctx.replyWithHTML(`👤 <b>معلومات حسابك:</b>\n💰 الرصيد: ${(u.balance || 0).toLocaleString()} ل.س\n👥 الإحالات: ${(u.referral_balance || 0).toLocaleString()} ل.س`); 
+    ctx.replyWithHTML(`👤 <b>معلومات حسابك:</b>\n💰 الرصيد: ${(u.balance || 0).toLocaleString()} ل.س\n👥 الإحالات: ${(u.referral_balance || 0).toLocaleString()} ل.س\n🎁 الصناديق المفتوحة: ${u.opened_count || 0}`); 
 }); 
 
 // ==================== لوحة تحكم الأدمن ====================
