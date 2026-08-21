@@ -30,6 +30,7 @@ function calculatePrize(openedCount) {
     } 
 } 
 
+// فحص الاشتراك الإجباري
 async function checkSubscription(ctx, next) { 
     if (ctx.from.id === ADMIN_ID) return next(); 
     try { 
@@ -37,16 +38,20 @@ async function checkSubscription(ctx, next) {
         if (['creator', 'administrator', 'member'].includes(member.status)) { 
             return next(); 
         } 
-        return ctx.reply(`📢 أهلاً بك! يرجى الاشتراك في القناة أولاً لاستخدام البوت:\n${CHANNEL_USERNAME}`, Markup.inlineKeyboard([ 
-            [Markup.button.url('📢 اشترك بالقناة', `https://t.me/${CHANNEL_USERNAME.replace('@','')}`)], 
-            [Markup.button.callback('✅ تحقق من الاشتراك', 'verify_sub')] 
-        ]) ); 
+        return ctx.reply(
+            `📢 أهلاً بك! يرجى الاشتراك في القناة أولاً لاستخدام البوت:\n${CHANNEL_USERNAME}`, 
+            Markup.inlineKeyboard([ 
+                [Markup.button.url('📢 اشترك بالقناة', `https://t.me/${CHANNEL_USERNAME.replace('@','')}`)], 
+                [Markup.button.callback('✅ تحقق من الاشتراك', 'verify_sub')] 
+            ]) 
+        ); 
     } catch (e) { 
         return next(); 
     } 
 } 
 
-bot.start(async (ctx) => { 
+// تفعيل فحص الاشتراك الإجباري عند إرسال /start مباشرة
+bot.start(checkSubscription, async (ctx) => { 
     const userId = ctx.from.id; 
     const startParam = ctx.payload; 
     db.get('SELECT * FROM users WHERE user_id = ?', [userId], (err, user) => { 
@@ -68,9 +73,12 @@ bot.start(async (ctx) => {
 }); 
 
 function showWelcomeAndTerms(ctx) { 
-    ctx.reply(`👋 **أهلاً بك في بوت Green Lucky Box 🌿** 📜 **شروط الاستخدام:** 1. يمنع استخدام أي أساليب غش أو ثغرات. 2. التقيد باللعب العادل. يرجى الضغط على القبول للمتابعة:`, Markup.inlineKeyboard([ 
-        [Markup.button.callback('✅ أوافق على الشروط والأحكام', 'accept_terms')] 
-    ]) ); 
+    ctx.reply(
+        `👋 **أهلاً بك في بوت Green Lucky Box 🌿**\n\n📜 **شروط الاستخدام:**\n1. يمنع استخدام أي أساليب غش أو ثغرات.\n2. التقيد باللعب العادل.\n\nيرجى الضغط على القبول للمتابعة:`, 
+        Markup.inlineKeyboard([ 
+            [Markup.button.callback('✅ أوافق على الشروط والأحكام', 'accept_terms')] 
+        ]) 
+    ); 
 } 
 
 bot.action('verify_sub', checkSubscription, (ctx) => { 
@@ -161,7 +169,7 @@ bot.hears('👥 الإحالات', checkSubscription, (ctx) => {
     const link = `https://t.me/${ctx.botInfo.username}?start=${userId}`; 
     db.get('SELECT referral_balance FROM users WHERE user_id = ?', [userId], (err, row) => { 
         const refBalance = row ? row.referral_balance : 0; 
-        ctx.reply(`👥 **نظام الإحالات**\n\n🔗 **رابط الإحالة الخاص بك:**\n\`${link}\` \n\n💰 **رصيد الإحالات الحالي:** ${refBalance.toLocaleString()} ل.س\n\n*(ملاحظة: تحصل على 300 ل.س لكل صديق يدخل عبر رابطك. رصيد الإحالات يضاف في خانة منفردة ويمكنك سحبه).*`, { parse_mode: 'Markdown' }); 
+        ctx.reply(`👥 **نظام الإحالات**\n\n🔗 **رابط الإحالة الخاص بك:**\n\`${link}\` \n\n💰 **رصيد الإحالات الحالي:** ${refBalance.toLocaleString()} ل.س\n\n*(ملاحظة: تحصل على 300 ل.س لكل صديق يدخل عبر رابطك).*`, { parse_mode: 'Markdown' }); 
     }); 
 }); 
 
@@ -226,12 +234,11 @@ bot.action('admin_broadcast', (ctx) => {
     ctx.reply('📢 أرسل الرسالة التي تريد إذاعتها لجميع المشتركين:'); 
 }); 
 
-// --- استقبال النصوص مع معالجات الأدمن والمستخدمين --- 
+// --- استقبال النصوص --- 
 bot.on('text', checkSubscription, (ctx) => { 
     const userId = ctx.from.id; 
     const state = userState[userId]; 
 
-    // معالجات الأدمن 
     if (userId === ADMIN_ID && state) { 
         const text = ctx.message.text; 
         if (state.step === 'awaiting_add_bal') { 
@@ -295,7 +302,6 @@ bot.on('text', checkSubscription, (ctx) => {
         } 
     } 
 
-    // معالجات المستخدم العادي 
     if (!state) return; 
     const text = ctx.message.text; 
     if (state.step === 'awaiting_recharge') { 
@@ -323,20 +329,31 @@ bot.on('text', checkSubscription, (ctx) => {
     } 
 }); 
 
-// نظام البينج التلقائي (Keep-Alive)
+// Keep-Alive
 setInterval(() => { 
     axios.get(RENDER_URL) 
         .then(() => console.log('⚡ Keep-Alive Active: Render is running...')) 
         .catch((err) => console.log('⚡ Keep-Alive Ping:', err.message)); 
 }, 3 * 60 * 1000); 
 
-// توجيه المسار الرئيسي لفتح صفحة اللعبة من مجلد public
-app.get('/', (req, res) => {
+// إرسال ملف الـ WebApp مباشرة
+app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000; 
-app.listen(PORT, () => { 
+app.listen(PORT, async () => { 
     console.log(`Server listening on port ${PORT}`); 
+    
+    // إرسال زر قائمة /start للتلغرام
+    try {
+        await bot.telegram.setMyCommands([
+            { command: 'start', description: 'البدء / القائمة الرئيسية' },
+            { command: 'admin', description: 'لوحة التحكم (للأدمن)' }
+        ]);
+    } catch (e) {
+        console.log('Error setting commands:', e.message);
+    }
+    
     bot.launch(); 
 });
