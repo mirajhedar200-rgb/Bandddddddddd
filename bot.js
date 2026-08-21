@@ -18,7 +18,7 @@ bot.catch((err, ctx) => {
     console.error(`❌ Bot Error:`, err);
 });
 
-// دالة قاعدة البيانات المرنة
+// دالة قاعدة البيانات المرنة مع التأكد من جاهزية جدول الإعدادات
 function queryDB(queryText, params = []) {
     return new Promise((resolve, reject) => {
         if (db.query) {
@@ -65,6 +65,17 @@ function runDB(queryText, params = []) {
     });
 }
 
+// دالة تهيئة جداول الإعدادات إن لم تكن موجودة
+async function initSettingsTable() {
+    try {
+        await runDB(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
+        console.log('✅ Settings table verified/created.');
+    } catch (e) {
+        console.log('⚠️ Settings table error:', e.message);
+    }
+}
+initSettingsTable();
+
 function calculatePrize(openedCount) { 
     if (openedCount === 18) return 10000; 
     if (openedCount === 20) return 15000; 
@@ -79,10 +90,10 @@ function calculatePrize(openedCount) {
 } 
 
 async function checkSubscription(ctx, next) { 
-    delete userState[ctx.from.id]; // مسح أي حالة معلقة عند الانتقال بين الأزرار
+    delete userState[ctx.from.id]; 
     if (ctx.from && ctx.from.id === ADMIN_ID) return next(); 
     try { 
-        const rows = await queryDB('SELECT value FROM settings WHERE key = "channel_username"');
+        const rows = await queryDB('SELECT value FROM settings WHERE key = $1 OR key = ?', ['channel_username']);
         const channelUsername = (rows && rows.length > 0) ? rows[0].value.trim() : (process.env.CHANNEL_USERNAME || '');
 
         if (!channelUsername || channelUsername === '@YourChannelUsername') return next();
@@ -168,7 +179,7 @@ async function showMainMenu(ctx) {
     ); 
 } 
 
-// ==================== أزرار القائمة المحدثة ====================
+// ==================== أزرار القائمة ====================
 
 bot.hears('🎁 فتح الصندوق', checkSubscription, async (ctx) => { 
     const userId = ctx.from.id; 
@@ -218,7 +229,7 @@ bot.hears('👥 الإحالات', checkSubscription, async (ctx) => {
     const rows = await queryDB('SELECT referral_balance FROM users WHERE user_id = ?', [userId]);
     const refBalance = (rows && rows.length > 0) ? rows[0].referral_balance : 0;
 
-    ctx.reply(`👥 **نظام الإحالات**\n\n🔗 **رابط الإحالة الخاص بك:**\n\`${link}\` \n\n💰 **رصيد الإحالات الحالي:** ${refBalance.toLocaleString()} ل.س\n\n*(تحصل على 300 ل.س لكل صديق يدخل عبر رابطك).*`, { parse_mode: 'Markdown' }); 
+    ctx.reply(`👥 **نظام الإحالات**\n\n🔗 **رابط الإحالة الخاص بك:**\n\`${link}\` \n\n💰 **رصيد الإحالات الحالي:** ${refBalance.toLocaleString()} ل.س`, { parse_mode: 'Markdown' }); 
 }); 
 
 bot.hears('📊 السجل', checkSubscription, async (ctx) => { 
@@ -228,13 +239,13 @@ bot.hears('📊 السجل', checkSubscription, async (ctx) => {
     let text = '📊 **سجل عملياتك الأخيرة:**\n\n'; 
     rows.forEach((r, i) => { 
         const typeText = r.type === 'recharge' ? '💳 شحن' : '💸 سحب'; 
-        text += `${i + 1}. ${typeText} - ${(r.amount || 0).toLocaleString()} ل.س (${r.status})\n📅 ${r.created_at || 'مؤخراً'}\n\n`; 
+        text += `${i + 1}. ${typeText} - ${(r.amount || 0).toLocaleString()} ل.س (${r.status})\n\n`; 
     }); 
     ctx.reply(text); 
 }); 
 
 bot.hears('👤 معلومات حسابي', checkSubscription, async (ctx) => { 
-    const rows = await queryDB('SELECT balance, referral_balance, opened_count, joined_at FROM users WHERE user_id = ?', [ctx.from.id]);
+    const rows = await queryDB('SELECT balance, referral_balance, opened_count FROM users WHERE user_id = ?', [ctx.from.id]);
     if (!rows || rows.length === 0) return; 
     const u = rows[0];
     
@@ -243,7 +254,7 @@ bot.hears('👤 معلومات حسابي', checkSubscription, async (ctx) => {
         `🆔 <b>ID:</b> <code>${ctx.from.id}</code>\n` + 
         `💰 <b>الرصيد الرئيسي:</b> ${(u.balance || 0).toLocaleString()} ل.س\n` + 
         `👥 <b>رصيد الإحالات:</b> ${(u.referral_balance || 0).toLocaleString()} ل.س\n` + 
-        `📦 <b>عدد مرات فتح الصندوق:</b> ${u.opened_count || 0} مرة`
+        `📦 <b>عدد فتح الصناديق:</b> ${u.opened_count || 0}`
     ); 
 }); 
 
@@ -260,55 +271,16 @@ bot.command('admin', (ctx) => {
     ])); 
 }); 
 
-bot.action('admin_add_bal', (ctx) => { 
-    if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'admin_add_bal' }; 
-    ctx.reply('➕ أرسل **ID المستخدم + المبلغ** بهذا الشكل:\n`123456789 5000`', { parse_mode: 'Markdown' }); 
-}); 
+bot.action('admin_add_bal', (ctx) => { if (ctx.from.id === ADMIN_ID) { userState[ADMIN_ID] = { step: 'admin_add_bal' }; ctx.reply('➕ أرسل **ID المستخدم + المبلغ**:', { parse_mode: 'Markdown' }); } }); 
+bot.action('admin_sub_bal', (ctx) => { if (ctx.from.id === ADMIN_ID) { userState[ADMIN_ID] = { step: 'admin_sub_bal' }; ctx.reply('➖ أرسل **ID المستخدم + المبلغ المراد خصمه**:', { parse_mode: 'Markdown' }); } }); 
+bot.action('admin_user_history', (ctx) => { if (ctx.from.id === ADMIN_ID) { userState[ADMIN_ID] = { step: 'admin_history' }; ctx.reply('🔍 أرسل **ID المستخدم** للبحث:'); } }); 
+bot.action('admin_broadcast', (ctx) => { if (ctx.from.id === ADMIN_ID) { userState[ADMIN_ID] = { step: 'admin_broadcast' }; ctx.reply('📢 أرسل نص الإذاعة العام:'); } }); 
+bot.action('set_recharge', (ctx) => { if (ctx.from.id === ADMIN_ID) { userState[ADMIN_ID] = { step: 'admin_set_recharge' }; ctx.reply('⚙️ أرسل تفاصيل وتعليمات الشحن الجديدة الآن:'); } }); 
+bot.action('set_withdraw', (ctx) => { if (ctx.from.id === ADMIN_ID) { userState[ADMIN_ID] = { step: 'admin_set_withdraw' }; ctx.reply('⚙️ أرسل تفاصيل وشروط السحب الجديدة الآن:'); } }); 
+bot.action('add_promo_code', (ctx) => { if (ctx.from.id === ADMIN_ID) { userState[ADMIN_ID] = { step: 'admin_add_promo' }; ctx.reply('➕ أرسل **الكود + المبلغ + الاستخدامات**:\nمثال: `GIFT 5000 10`', { parse_mode: 'Markdown' }); } }); 
+bot.action('set_channel', (ctx) => { if (ctx.from.id === ADMIN_ID) { userState[ADMIN_ID] = { step: 'admin_set_channel' }; ctx.reply('📢 أرسل معرف القناة الجديدة مع `@`:'); } }); 
 
-bot.action('admin_sub_bal', (ctx) => { 
-    if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'admin_sub_bal' }; 
-    ctx.reply('➖ أرسل **ID المستخدم + المبلغ المراد خصمه** بهذا الشكل:\n`123456789 2000`', { parse_mode: 'Markdown' }); 
-}); 
-
-bot.action('admin_user_history', (ctx) => { 
-    if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'admin_history' }; 
-    ctx.reply('🔍 أرسل **ID المستخدم** للبحث عن سجله ورصيده:'); 
-}); 
-
-bot.action('admin_broadcast', (ctx) => { 
-    if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'admin_broadcast' }; 
-    ctx.reply('📢 أرسل الرسالة التي تريد إذاعتها لجميع المشتركين:'); 
-}); 
-
-bot.action('set_recharge', (ctx) => { 
-    if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'admin_set_recharge' }; 
-    ctx.reply('⚙️ أرسل التعليمات أو رقم سيريتل كاش الجديد المخصص للشحن:'); 
-}); 
-
-bot.action('set_withdraw', (ctx) => { 
-    if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'admin_set_withdraw' }; 
-    ctx.reply('⚙️ أرسل التعليمات والشروط الجديدة المخصصة لسحب الأرباح:'); 
-}); 
-
-bot.action('add_promo_code', (ctx) => { 
-    if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'admin_add_promo' }; 
-    ctx.reply('➕ أرسل **الكود + قيمة المكافأة + عدد الاستخدامات** بهذا الشكل:\n`GIFT100 5000 10`', { parse_mode: 'Markdown' }); 
-}); 
-
-bot.action('set_channel', (ctx) => { 
-    if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'admin_set_channel' }; 
-    ctx.reply('📢 أرسل معرف القناة الجديدة مع الـ `@`:\nمثال: `@MyNewChannel`'); 
-}); 
-
-// ==================== معالجة كافة الرسائل النصية ====================
+// ==================== معالجة إدخالات النصوص للأدمن والمستخدمين ====================
 
 bot.on('text', async (ctx, next) => { 
     const userId = ctx.from.id; 
@@ -318,23 +290,22 @@ bot.on('text', async (ctx, next) => {
 
     const state = userState[userId]; 
 
-    // معالجات الأدمن
-    if (userId === ADMIN_ID && state && state.step.startsWith('admin_')) { 
+    // معالجات الأدمن الآمنة
+    if (userId === ADMIN_ID && state && state.step && state.step.startsWith('admin_')) { 
         if (state.step === 'admin_set_channel') {
             delete userState[ADMIN_ID]; 
-            if (!text.startsWith('@')) return ctx.reply('❌ اكتب المعرف مع الـ `@`.');
-            await runDB('INSERT INTO settings (key, value) VALUES ("channel_username", ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
-            return ctx.reply(`✅ تم تحديث قناة الاشتراك الإجباري إلى: ${text}`); 
+            await runDB('INSERT INTO settings (key, value) VALUES (\'channel_username\', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
+            return ctx.reply(`✅ تم تحديث قناة الاشتراك إلى: ${text}`); 
 
         } else if (state.step === 'admin_set_recharge') { 
             delete userState[ADMIN_ID]; 
-            await runDB('INSERT INTO settings (key, value) VALUES ("syriatel_info", ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
-            return ctx.reply('✅ تم تحديث تعليمات الشحن بنجاح!'); 
+            await runDB('INSERT INTO settings (key, value) VALUES (\'syriatel_info\', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
+            return ctx.reply('✅ تم تحديث تعليمات الشحن بنجاح وتخزينها في قاعدة البيانات!'); 
 
         } else if (state.step === 'admin_set_withdraw') { 
             delete userState[ADMIN_ID]; 
-            await runDB('INSERT INTO settings (key, value) VALUES ("withdraw_info", ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
-            return ctx.reply('✅ تم تحديث تعليمات السحب بنجاح!'); 
+            await runDB('INSERT INTO settings (key, value) VALUES (\'withdraw_info\', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
+            return ctx.reply('✅ تم تحديث تعليمات السحب بنجاح وتخزينها في قاعدة البيانات!'); 
 
         } else if (state.step === 'admin_add_promo') { 
             delete userState[ADMIN_ID]; 
@@ -342,9 +313,7 @@ bot.on('text', async (ctx, next) => {
             const code = parts[0]; 
             const reward = parseInt(parts[1]); 
             const uses = parseInt(parts[2]); 
-            if (!code || isNaN(reward) || isNaN(uses)) { 
-                return ctx.reply('❌ صيغة خاطئة! أرسل: الكود المبلغ الاستخدامات', { parse_mode: 'Markdown' }); 
-            } 
+            if (!code || isNaN(reward) || isNaN(uses)) return ctx.reply('❌ صيغة خاطئة.'); 
             try {
                 await runDB('INSERT INTO promo_codes (code, reward, uses_left) VALUES (?, ?, ?)', [code, reward, uses]);
                 return ctx.reply(`✅ تم إنشاء الكود \`${code}\` بنجاح!`, { parse_mode: 'Markdown' }); 
@@ -357,10 +326,9 @@ bot.on('text', async (ctx, next) => {
             const parts = text.split(/\s+/); 
             const targetId = parseInt(parts[0]); 
             const amount = parseInt(parts[1]); 
-            if (!targetId || isNaN(targetId) || isNaN(amount)) return ctx.reply('❌ صيغة خاطئة!');
-
+            if (!targetId || isNaN(amount)) return ctx.reply('❌ خطأ في الصيغة.');
             await runDB('UPDATE users SET balance = balance + ? WHERE user_id = ?', [amount, targetId]);
-            ctx.reply(`✅ تمت إضافة ${amount.toLocaleString()} ل.س للمستخدم \`${targetId}\`.`, { parse_mode: 'Markdown' }); 
+            ctx.reply(`✅ تمت الإضافة بنجاح.`); 
             bot.telegram.sendMessage(targetId, `🎉 تم إيداع ${amount.toLocaleString()} ل.س في حسابك!`).catch(() => {}); 
             return; 
 
@@ -369,65 +337,54 @@ bot.on('text', async (ctx, next) => {
             const parts = text.split(/\s+/); 
             const targetId = parseInt(parts[0]); 
             const amount = parseInt(parts[1]); 
-            if (!targetId || isNaN(targetId) || isNaN(amount)) return ctx.reply('❌ صيغة خاطئة!');
-
+            if (!targetId || isNaN(amount)) return ctx.reply('❌ خطأ في الصيغة.');
             await runDB('UPDATE users SET balance = balance - ? WHERE user_id = ?', [amount, targetId]);
-            ctx.reply(`✅ تم خصم ${amount.toLocaleString()} ل.س من المستخدم \`${targetId}\`.`, { parse_mode: 'Markdown' }); 
-            bot.telegram.sendMessage(targetId, `⚠️ تم خصم ${amount.toLocaleString()} ل.س من حسابك!`).catch(() => {}); 
+            ctx.reply(`✅ تم الخصم بنجاح.`); 
             return; 
 
         } else if (state.step === 'admin_history') { 
             delete userState[ADMIN_ID]; 
             const targetId = parseInt(text); 
-            if (isNaN(targetId)) return ctx.reply('❌ أرسل آيدي صحيح.');
-            
             const users = await queryDB('SELECT * FROM users WHERE user_id = ?', [targetId]);
             if (!users || users.length === 0) return ctx.reply('❌ المستخدم غير موجود.'); 
-            
-            const u = users[0];
-            return ctx.reply(`👤 **معلومات المستخدم:**\n\n🆔 الآيدي: \`${u.user_id}\`\n💰 الرصيد الرئيسي: ${u.balance.toLocaleString()} ل.س\n👥 رصيد الإحالات: ${u.referral_balance.toLocaleString()} ل.س`, { parse_mode: 'Markdown' }); 
+            return ctx.reply(`👤 الآيدي: \`${users[0].user_id}\`\n💰 الرصيد: ${users[0].balance.toLocaleString()} ل.س`, { parse_mode: 'Markdown' }); 
 
         } else if (state.step === 'admin_broadcast') { 
             delete userState[ADMIN_ID]; 
-            ctx.reply('⏳ جاري إرسال الإذاعة...'); 
+            ctx.reply('⏳ جاري الإذاعة...'); 
             const users = await queryDB('SELECT user_id FROM users');
-            let count = 0;
             for (const u of users) {
-                try {
-                    await bot.telegram.sendMessage(u.user_id, text);
-                    count++;
-                } catch (e) {}
+                try { await bot.telegram.sendMessage(u.user_id, text); } catch (e) {}
             }
-            return ctx.reply(`✅ تمت الإذاعة بنجاح واستلمها ${count} مستخدم!`); 
+            return ctx.reply('✅ تمت الإذاعة بنجاح.'); 
         } 
     } 
 
-    // معالجات إدخال المستخدمين
+    // معالجات طلبات المستخدمين (شحن، سحب، كود)
     if (state) {
         if (state.step === 'user_req_recharge') { 
             delete userState[userId]; 
             await runDB('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, "recharge", 0, "pending", ?)', [userId, text]); 
-            ctx.reply('✅ تم إرسال طلب الشحن بنجاح للإدارة!'); 
-            bot.telegram.sendMessage(ADMIN_ID, `📩 **طلب شحن جديد!**\n👤 المستخدم: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
+            ctx.reply('✅ تم إرسال طلب الشحن للإدارة بنجاح وسيتم التدقيق قريباً.'); 
+            bot.telegram.sendMessage(ADMIN_ID, `📩 **طلب شحن جديد!**\n👤 من: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
             return;
 
         } else if (state.step === 'user_req_withdraw') { 
             delete userState[userId]; 
             await runDB('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, "withdraw", 0, "pending", ?)', [userId, text]); 
-            ctx.reply('✅ تم إرسال طلب السحب بنجاح للإدارة! سيتم التحقق والتحويل قريباً.'); 
-            bot.telegram.sendMessage(ADMIN_ID, `💸 **طلب سحب جديد!**\n👤 المستخدم: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
+            ctx.reply('✅ تم إرسال طلب السحب للإدارة بنجاح وسيتم التحويل قريباً.'); 
+            bot.telegram.sendMessage(ADMIN_ID, `💸 **طلب سحب جديد!**\n👤 من: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
             return;
 
         } else if (state.step === 'awaiting_promo') { 
             delete userState[userId]; 
             const codes = await queryDB('SELECT reward, uses_left FROM promo_codes WHERE code = ?', [text]); 
             if (!codes || codes.length === 0 || codes[0].uses_left <= 0) {
-                return ctx.reply('❌ الكود غير صحيح أو انتهت صلاحيته.'); 
+                return ctx.reply('❌ الكود غير صحيح أو منتهي الصلاحية.'); 
             }
-            const code = codes[0];
-            await runDB('UPDATE users SET balance = balance + ? WHERE user_id = ?', [code.reward, userId]); 
+            await runDB('UPDATE users SET balance = balance + ? WHERE user_id = ?', [codes[0].reward, userId]); 
             await runDB('UPDATE promo_codes SET uses_left = uses_left - 1 WHERE code = ?', [text]); 
-            ctx.reply(`🎉 مبروك! تمت إضافة ${code.reward.toLocaleString()} ل.س لرصيدك بنجاح.`); 
+            ctx.reply(`🎉 مبروك! تمت إضافة ${codes[0].reward.toLocaleString()} ل.س لرصيدك.`); 
             return;
         }
     }
