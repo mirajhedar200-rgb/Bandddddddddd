@@ -14,6 +14,11 @@ app.use(express.json());
 
 const userState = {}; 
 
+// معالجة الأخطاء العامة للبوت حتى لا ينهار السيرفر
+bot.catch((err, ctx) => {
+    console.error(`❌ Bot Error for ${ctx.updateType}:`, err);
+});
+
 function calculatePrize(openedCount) { 
     if (openedCount === 18) return 10000; 
     if (openedCount === 20) return 15000; 
@@ -485,13 +490,15 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3000; 
 
-app.listen(PORT, async () => { 
+// 1. تشغيل سيرفر الويب أولاً
+app.listen(PORT, () => { 
     console.log(`Server listening on port ${PORT}`); 
-    
+});
+
+// 2. تشغيل البوت بشكل منفصل وتلقائي
+async function startBot() {
     try {
-        // حذف الـ Webhook القديم للتأكد من استخدام Polling وتفادي التعارض
         await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-        
         await bot.launch();
         console.log('✅ Telegram Bot is connected and listening to messages!');
 
@@ -502,8 +509,9 @@ app.listen(PORT, async () => {
     } catch (err) {
         console.error('❌ Failed to connect Telegram Bot:', err.message);
     }
-});
+}
 
-// إغلاق البوت بسلاسة عند إعادة التشغيل
+startBot();
+
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
