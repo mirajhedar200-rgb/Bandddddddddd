@@ -1,4 +1,4 @@
-دconst { Telegraf, Markup } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
 const axios = require('axios');
 const db = require('./database');
