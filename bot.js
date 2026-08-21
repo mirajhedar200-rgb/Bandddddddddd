@@ -18,7 +18,7 @@ bot.catch((err, ctx) => {
     console.error(`❌ Bot Error:`, err);
 });
 
-// دالة مرنة تتوافق مع PostgreSQL و SQLite
+// دالة قاعدة البيانات المرنة
 function queryDB(queryText, params = []) {
     return new Promise((resolve, reject) => {
         if (db.query) {
@@ -65,7 +65,6 @@ function runDB(queryText, params = []) {
     });
 }
 
-// حساب الجوائز تلقائياً
 function calculatePrize(openedCount) { 
     if (openedCount === 18) return 10000; 
     if (openedCount === 20) return 15000; 
@@ -79,8 +78,8 @@ function calculatePrize(openedCount) {
     } 
 } 
 
-// الاشتراك الإجباري
 async function checkSubscription(ctx, next) { 
+    delete userState[ctx.from.id]; // مسح أي حالة معلقة عند الانتقال بين الأزرار
     if (ctx.from && ctx.from.id === ADMIN_ID) return next(); 
     try { 
         const rows = await queryDB('SELECT value FROM settings WHERE key = "channel_username"');
@@ -153,6 +152,7 @@ bot.action('accept_terms', async (ctx) => {
 
 async function showMainMenu(ctx) { 
     const userId = ctx.from.id; 
+    delete userState[userId];
     const rows = await queryDB('SELECT balance, referral_balance FROM users WHERE user_id = ?', [userId]);
     const balance = (rows && rows.length > 0) ? rows[0].balance : 0; 
     const refBalance = (rows && rows.length > 0) ? rows[0].referral_balance : 0; 
@@ -168,9 +168,8 @@ async function showMainMenu(ctx) {
     ); 
 } 
 
-// ==================== أزرار المستخدم المحدثة بالكامل ====================
+// ==================== أزرار القائمة المحدثة ====================
 
-// فتح الصندوق
 bot.hears('🎁 فتح الصندوق', checkSubscription, async (ctx) => { 
     const userId = ctx.from.id; 
     const rows = await queryDB('SELECT balance FROM users WHERE user_id = ?', [userId]);
@@ -188,9 +187,8 @@ bot.hears('🎁 فتح الصندوق', checkSubscription, async (ctx) => {
 
 bot.action('cancel_act', (ctx) => ctx.deleteMessage().catch(() => {}));
 
-// قسم شحن الرصيد المصلح
 bot.hears('💳 شحن رصيد', checkSubscription, async (ctx) => { 
-    userState[ctx.from.id] = { step: 'awaiting_recharge' }; 
+    userState[ctx.from.id] = { step: 'user_req_recharge' }; 
     const rows = await queryDB('SELECT value FROM settings WHERE key = "syriatel_info"');
     const info = (rows && rows.length > 0 && rows[0].value) 
         ? rows[0].value 
@@ -199,24 +197,21 @@ bot.hears('💳 شحن رصيد', checkSubscription, async (ctx) => {
     ctx.reply(`💳 **قسم شحن الرصيد**\n\n📌 **تعليمات ومعلومات الشحن:**\n${info}\n\n👇 **يرجى إرسال (المبلغ + رقم عملية التحويل) الآن في رسالة واحدة:**`); 
 }); 
 
-// قسم سحب الرصيد المصلح
 bot.hears('💸 سحب رصيد', checkSubscription, async (ctx) => { 
-    userState[ctx.from.id] = { step: 'awaiting_withdraw' }; 
+    userState[ctx.from.id] = { step: 'user_req_withdraw' }; 
     const rows = await queryDB('SELECT value FROM settings WHERE key = "withdraw_info"');
     const info = (rows && rows.length > 0 && rows[0].value) 
         ? rows[0].value 
-        : 'طريقة السحب المتوفرة: سيريتل كاش.\nالحد الأدنى للسحب هو 5000 ل.س.';
+        : 'الحد الأدنى للسحب من البوت 40000 ل.س.';
 
-    ctx.reply(`💸 **قسم سحب الأرباح**\n\n📌 **تعليمات ومعلومات السحب:**\n${info}\n\n👇 **يرجى إرسال (عنوان/رقم الاستلام + المبلغ المراد سحبه) الآن:**`); 
+    ctx.reply(`💸 **قسم سحب الأرباح**\n\n📌 **تعليمات ومعلومات السحب:**\n${info}\n\n👇 **أرسل المبلغ المراد سحبه مع عنوان استقبال أرباحك الآن:**`); 
 }); 
 
-// كود هدية
 bot.hears('🎁 كود هدية', checkSubscription, (ctx) => { 
     userState[ctx.from.id] = { step: 'awaiting_promo' }; 
     ctx.reply('🎁 أدخل كود الهدية الذي حصلت عليه:'); 
 }); 
 
-// الإحالات
 bot.hears('👥 الإحالات', checkSubscription, async (ctx) => { 
     const userId = ctx.from.id; 
     const link = `https://t.me/${ctx.botInfo.username}?start=${userId}`; 
@@ -226,7 +221,6 @@ bot.hears('👥 الإحالات', checkSubscription, async (ctx) => {
     ctx.reply(`👥 **نظام الإحالات**\n\n🔗 **رابط الإحالة الخاص بك:**\n\`${link}\` \n\n💰 **رصيد الإحالات الحالي:** ${refBalance.toLocaleString()} ل.س\n\n*(تحصل على 300 ل.س لكل صديق يدخل عبر رابطك).*`, { parse_mode: 'Markdown' }); 
 }); 
 
-// السجل
 bot.hears('📊 السجل', checkSubscription, async (ctx) => { 
     const rows = await queryDB('SELECT type, amount, status, created_at FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 5', [ctx.from.id]);
     if (!rows || rows.length === 0) return ctx.reply('📊 لا يوجد لديك عمليات شحن أو سحب سابقة.'); 
@@ -239,7 +233,6 @@ bot.hears('📊 السجل', checkSubscription, async (ctx) => {
     ctx.reply(text); 
 }); 
 
-// معلومات حسابي
 bot.hears('👤 معلومات حسابي', checkSubscription, async (ctx) => { 
     const rows = await queryDB('SELECT balance, referral_balance, opened_count, joined_at FROM users WHERE user_id = ?', [ctx.from.id]);
     if (!rows || rows.length === 0) return; 
@@ -250,35 +243,11 @@ bot.hears('👤 معلومات حسابي', checkSubscription, async (ctx) => {
         `🆔 <b>ID:</b> <code>${ctx.from.id}</code>\n` + 
         `💰 <b>الرصيد الرئيسي:</b> ${(u.balance || 0).toLocaleString()} ل.س\n` + 
         `👥 <b>رصيد الإحالات:</b> ${(u.referral_balance || 0).toLocaleString()} ل.س\n` + 
-        `📦 <b>عدد مرات فتح الصندوق:</b> ${u.opened_count || 0} مرة\n` + 
-        `📅 <b>تاريخ الانضمام:</b> ${u.joined_at || 'غير محدد'}` 
+        `📦 <b>عدد مرات فتح الصندوق:</b> ${u.opened_count || 0} مرة`
     ); 
 }); 
 
-// WebApp API لفتح الصندوق
-app.post('/api/open-box', async (req, res) => { 
-    const userId = req.body.user_id; 
-    if (!userId) return res.json({ success: false, message: 'بيانات مستخدم غير صالحة' }); 
-    
-    try {
-        const users = await queryDB('SELECT balance, opened_count FROM users WHERE user_id = ?', [userId]);
-        if (!users || users.length === 0 || users[0].balance < 2000) { 
-            return res.json({ success: false, message: 'رصيدك غير كافٍ! اشحن لتفتح' }); 
-        } 
-
-        const user = users[0];
-        const newCount = (user.opened_count || 0) + 1; 
-        const prize = calculatePrize(newCount); 
-        const newBalance = user.balance - 2000 + prize; 
-
-        await runDB('UPDATE users SET balance = ?, opened_count = ? WHERE user_id = ?', [newBalance, newCount, userId]);
-        res.json({ success: true, prize: prize, newBalance: newBalance }); 
-    } catch (e) {
-        res.json({ success: false, message: 'حدث خطأ في السيرفر' }); 
-    }
-}); 
-
-// ==================== لوحة تحكم الأدمن الشاملة ====================
+// ==================== لوحة تحكم الأدمن ====================
 
 bot.command('admin', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
@@ -293,53 +262,53 @@ bot.command('admin', (ctx) => {
 
 bot.action('admin_add_bal', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'awaiting_add_bal' }; 
+    userState[ADMIN_ID] = { step: 'admin_add_bal' }; 
     ctx.reply('➕ أرسل **ID المستخدم + المبلغ** بهذا الشكل:\n`123456789 5000`', { parse_mode: 'Markdown' }); 
 }); 
 
 bot.action('admin_sub_bal', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'awaiting_sub_bal' }; 
+    userState[ADMIN_ID] = { step: 'admin_sub_bal' }; 
     ctx.reply('➖ أرسل **ID المستخدم + المبلغ المراد خصمه** بهذا الشكل:\n`123456789 2000`', { parse_mode: 'Markdown' }); 
 }); 
 
 bot.action('admin_user_history', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'awaiting_user_id_history' }; 
+    userState[ADMIN_ID] = { step: 'admin_history' }; 
     ctx.reply('🔍 أرسل **ID المستخدم** للبحث عن سجله ورصيده:'); 
 }); 
 
 bot.action('admin_broadcast', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'awaiting_broadcast_msg' }; 
+    userState[ADMIN_ID] = { step: 'admin_broadcast' }; 
     ctx.reply('📢 أرسل الرسالة التي تريد إذاعتها لجميع المشتركين:'); 
 }); 
 
 bot.action('set_recharge', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'awaiting_set_recharge' }; 
+    userState[ADMIN_ID] = { step: 'admin_set_recharge' }; 
     ctx.reply('⚙️ أرسل التعليمات أو رقم سيريتل كاش الجديد المخصص للشحن:'); 
 }); 
 
 bot.action('set_withdraw', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'awaiting_set_withdraw' }; 
+    userState[ADMIN_ID] = { step: 'admin_set_withdraw' }; 
     ctx.reply('⚙️ أرسل التعليمات والشروط الجديدة المخصصة لسحب الأرباح:'); 
 }); 
 
 bot.action('add_promo_code', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'awaiting_add_promo' }; 
+    userState[ADMIN_ID] = { step: 'admin_add_promo' }; 
     ctx.reply('➕ أرسل **الكود + قيمة المكافأة + عدد الاستخدامات** بهذا الشكل:\n`GIFT100 5000 10`', { parse_mode: 'Markdown' }); 
 }); 
 
 bot.action('set_channel', (ctx) => { 
     if (ctx.from.id !== ADMIN_ID) return; 
-    userState[ADMIN_ID] = { step: 'awaiting_set_channel' }; 
+    userState[ADMIN_ID] = { step: 'admin_set_channel' }; 
     ctx.reply('📢 أرسل معرف القناة الجديدة مع الـ `@`:\nمثال: `@MyNewChannel`'); 
 }); 
 
-// ==================== معالجة كافة الرسائل النصية والطلبات ====================
+// ==================== معالجة كافة الرسائل النصية ====================
 
 bot.on('text', async (ctx, next) => { 
     const userId = ctx.from.id; 
@@ -350,78 +319,64 @@ bot.on('text', async (ctx, next) => {
     const state = userState[userId]; 
 
     // معالجات الأدمن
-    if (userId === ADMIN_ID && state) { 
-        if (state.step === 'awaiting_set_channel') {
+    if (userId === ADMIN_ID && state && state.step.startsWith('admin_')) { 
+        if (state.step === 'admin_set_channel') {
             delete userState[ADMIN_ID]; 
             if (!text.startsWith('@')) return ctx.reply('❌ اكتب المعرف مع الـ `@`.');
             await runDB('INSERT INTO settings (key, value) VALUES ("channel_username", ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
             return ctx.reply(`✅ تم تحديث قناة الاشتراك الإجباري إلى: ${text}`); 
 
-        } else if (state.step === 'awaiting_set_recharge') { 
+        } else if (state.step === 'admin_set_recharge') { 
             delete userState[ADMIN_ID]; 
             await runDB('INSERT INTO settings (key, value) VALUES ("syriatel_info", ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
-            return ctx.reply('✅ تم تحديث معلومات الشحن بنجاح!'); 
+            return ctx.reply('✅ تم تحديث تعليمات الشحن بنجاح!'); 
 
-        } else if (state.step === 'awaiting_set_withdraw') { 
+        } else if (state.step === 'admin_set_withdraw') { 
             delete userState[ADMIN_ID]; 
             await runDB('INSERT INTO settings (key, value) VALUES ("withdraw_info", ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [text]);
-            return ctx.reply('✅ تم تحديث معلومات السحب بنجاح!'); 
+            return ctx.reply('✅ تم تحديث تعليمات السحب بنجاح!'); 
 
-        } else if (state.step === 'awaiting_add_promo') { 
+        } else if (state.step === 'admin_add_promo') { 
             delete userState[ADMIN_ID]; 
             const parts = text.split(/\s+/); 
             const code = parts[0]; 
             const reward = parseInt(parts[1]); 
             const uses = parseInt(parts[2]); 
             if (!code || isNaN(reward) || isNaN(uses)) { 
-                return ctx.reply('❌ صيغة خاطئة! أرسل: الكود المبلغ الاستخدامات\nمثال: `FREE2026 5000 10`', { parse_mode: 'Markdown' }); 
+                return ctx.reply('❌ صيغة خاطئة! أرسل: الكود المبلغ الاستخدامات', { parse_mode: 'Markdown' }); 
             } 
             try {
                 await runDB('INSERT INTO promo_codes (code, reward, uses_left) VALUES (?, ?, ?)', [code, reward, uses]);
                 return ctx.reply(`✅ تم إنشاء الكود \`${code}\` بنجاح!`, { parse_mode: 'Markdown' }); 
             } catch (err) {
-                return ctx.reply('❌ الكود موجود مسبقاً أو حدث خطأ.');
+                return ctx.reply('❌ الكود موجود مسبقاً.');
             }
 
-        } else if (state.step === 'awaiting_add_bal') { 
+        } else if (state.step === 'admin_add_bal') { 
             delete userState[ADMIN_ID]; 
             const parts = text.split(/\s+/); 
             const targetId = parseInt(parts[0]); 
             const amount = parseInt(parts[1]); 
+            if (!targetId || isNaN(targetId) || isNaN(amount)) return ctx.reply('❌ صيغة خاطئة!');
 
-            if (!targetId || isNaN(targetId) || isNaN(amount)) {
-                return ctx.reply('❌ صيغة خاطئة! أرسل الآيدي والمبلغ.'); 
-            }
-
-            try {
-                await runDB('UPDATE users SET balance = balance + ? WHERE user_id = ?', [amount, targetId]);
-                ctx.reply(`✅ تمت إضافة ${amount.toLocaleString()} ل.س للمستخدم \`${targetId}\`.`, { parse_mode: 'Markdown' }); 
-                bot.telegram.sendMessage(targetId, `🎉 تم إيداع ${amount.toLocaleString()} ل.س في حسابك!`).catch(() => {}); 
-            } catch (e) {
-                ctx.reply('❌ تعذر تعديل الرصيد.');
-            }
+            await runDB('UPDATE users SET balance = balance + ? WHERE user_id = ?', [amount, targetId]);
+            ctx.reply(`✅ تمت إضافة ${amount.toLocaleString()} ل.س للمستخدم \`${targetId}\`.`, { parse_mode: 'Markdown' }); 
+            bot.telegram.sendMessage(targetId, `🎉 تم إيداع ${amount.toLocaleString()} ل.س في حسابك!`).catch(() => {}); 
             return; 
 
-        } else if (state.step === 'awaiting_sub_bal') { 
+        } else if (state.step === 'admin_sub_bal') { 
             delete userState[ADMIN_ID]; 
             const parts = text.split(/\s+/); 
             const targetId = parseInt(parts[0]); 
             const amount = parseInt(parts[1]); 
+            if (!targetId || isNaN(targetId) || isNaN(amount)) return ctx.reply('❌ صيغة خاطئة!');
 
-            if (!targetId || isNaN(targetId) || isNaN(amount)) {
-                return ctx.reply('❌ صيغة خاطئة! أرسل الآيدي والمبلغ المراد خصمه.'); 
-            }
-
-            try {
-                await runDB('UPDATE users SET balance = balance - ? WHERE user_id = ?', [amount, targetId]);
-                ctx.reply(`✅ تم خصم ${amount.toLocaleString()} ل.س من المستخدم \`${targetId}\`.`, { parse_mode: 'Markdown' }); 
-                bot.telegram.sendMessage(targetId, `⚠️ تم خصم ${amount.toLocaleString()} ل.س من حسابك!`).catch(() => {}); 
-            } catch (e) {
-                ctx.reply('❌ تعذر خصم الرصيد.');
-            }
+            await runDB('UPDATE users SET balance = balance - ? WHERE user_id = ?', [amount, targetId]);
+            ctx.reply(`✅ تم خصم ${amount.toLocaleString()} ل.س من المستخدم \`${targetId}\`.`, { parse_mode: 'Markdown' }); 
+            bot.telegram.sendMessage(targetId, `⚠️ تم خصم ${amount.toLocaleString()} ل.س من حسابك!`).catch(() => {}); 
             return; 
 
-        } else if (state.step === 'awaiting_user_id_history') { 
+        } else if (state.step === 'admin_history') { 
             delete userState[ADMIN_ID]; 
             const targetId = parseInt(text); 
             if (isNaN(targetId)) return ctx.reply('❌ أرسل آيدي صحيح.');
@@ -430,11 +385,11 @@ bot.on('text', async (ctx, next) => {
             if (!users || users.length === 0) return ctx.reply('❌ المستخدم غير موجود.'); 
             
             const u = users[0];
-            return ctx.reply(`👤 **معلومات المستخدم:**\n\n🆔 الآيدي: \`${u.user_id}\`\n💰 الرصيد الرئيسي: ${u.balance.toLocaleString()} ل.س\n👥 رصيد الإحالات: ${u.referral_balance.toLocaleString()} ل.س\n📦 الصناديق المفتوحة: ${u.opened_count}`, { parse_mode: 'Markdown' }); 
+            return ctx.reply(`👤 **معلومات المستخدم:**\n\n🆔 الآيدي: \`${u.user_id}\`\n💰 الرصيد الرئيسي: ${u.balance.toLocaleString()} ل.س\n👥 رصيد الإحالات: ${u.referral_balance.toLocaleString()} ل.س`, { parse_mode: 'Markdown' }); 
 
-        } else if (state.step === 'awaiting_broadcast_msg') { 
+        } else if (state.step === 'admin_broadcast') { 
             delete userState[ADMIN_ID]; 
-            ctx.reply('⏳ جاري إرسال الإذاعة لجميع المشتركين...'); 
+            ctx.reply('⏳ جاري إرسال الإذاعة...'); 
             const users = await queryDB('SELECT user_id FROM users');
             let count = 0;
             for (const u of users) {
@@ -447,19 +402,19 @@ bot.on('text', async (ctx, next) => {
         } 
     } 
 
-    // معالجات إدخال المستخدمين (شحن، سحب، كود هدية)
+    // معالجات إدخال المستخدمين
     if (state) {
-        if (state.step === 'awaiting_recharge') { 
+        if (state.step === 'user_req_recharge') { 
             delete userState[userId]; 
             await runDB('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, "recharge", 0, "pending", ?)', [userId, text]); 
-            ctx.reply('✅ تم إرسال طلب الشحن بنجاح للإدارة! سيتم تدقيق الطلب وإضافة الرصيد لحسابك قريبًا.'); 
+            ctx.reply('✅ تم إرسال طلب الشحن بنجاح للإدارة!'); 
             bot.telegram.sendMessage(ADMIN_ID, `📩 **طلب شحن جديد!**\n👤 المستخدم: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
             return;
 
-        } else if (state.step === 'awaiting_withdraw') { 
+        } else if (state.step === 'user_req_withdraw') { 
             delete userState[userId]; 
             await runDB('INSERT INTO transactions (user_id, type, amount, status, details) VALUES (?, "withdraw", 0, "pending", ?)', [userId, text]); 
-            ctx.reply('✅ تم إرسال طلب السحب بنجاح للإدارة! سيتم المعالجة والتحويل في أقرب وقت.'); 
+            ctx.reply('✅ تم إرسال طلب السحب بنجاح للإدارة! سيتم التحقق والتحويل قريباً.'); 
             bot.telegram.sendMessage(ADMIN_ID, `💸 **طلب سحب جديد!**\n👤 المستخدم: \`${userId}\`\n📝 التفاصيل: ${text}`, { parse_mode: 'Markdown' }).catch(() => {}); 
             return;
 
@@ -480,61 +435,6 @@ bot.on('text', async (ctx, next) => {
     return next();
 }); 
 
-// إبقاء السيرفر نشطاً على Render
-setInterval(() => { 
-    axios.get(RENDER_URL) 
-        .then(() => console.log('⚡ Keep-Alive Active')) 
-        .catch((err) => console.log('⚡ Keep-Alive Ping:', err.message)); 
-}, 3 * 60 * 1000); 
-
-// الواجهة الخاصة بالـ WebApp
-app.get('*', (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Green Lucky Box</title>
-        <script src="https://telegram.org/js/telegram-web-app.js"></script>
-        <style>
-            body { font-family: system-ui, sans-serif; text-align: center; padding: 30px 15px; background: #121212; color: #fff; margin: 0; }
-            .card { background: #1e1e1e; padding: 25px; border-radius: 16px; }
-            h1 { color: #28a745; }
-            button { width: 100%; max-width: 300px; padding: 15px; font-size: 18px; font-weight: bold; background: #28a745; color: white; border: none; border-radius: 10px; cursor: pointer; }
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h1>🌿 Green Lucky Box 🎁</h1>
-            <p>اضغط أسفله لتجربة حظك وفتح الصندوق!</p>
-            <button onclick="openBox()">📦 افتح الصندوق (2000 ل.س)</button>
-        </div>
-        <script>
-            const tg = window.Telegram.WebApp;
-            tg.expand();
-            function openBox() {
-                const urlParams = new URLSearchParams(window.location.search);
-                const userId = urlParams.get('user_id');
-                if (!userId) return alert('❌ لا يمكن التعرف على حسابك');
-                fetch('/api/open-box', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_id: userId })
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) alert(\`🎉 مبروك! ربحت \${data.prize} ل.س!\`);
-                    else alert(\`❌ \${data.message}\`);
-                });
-            }
-        </script>
-    </body>
-    </html>
-    `);
-});
-
-// مسار Webhook
 app.use(bot.webhookCallback(`/bot${BOT_TOKEN}`));
 
 const PORT = process.env.PORT || 10000; 
@@ -543,7 +443,7 @@ app.listen(PORT, async () => {
     console.log(`Server listening on port ${PORT}`); 
     try {
         await bot.telegram.setWebhook(`${RENDER_URL}/bot${BOT_TOKEN}`);
-        console.log('✅ Webhook attached successfully to Render!');
+        console.log('✅ Webhook attached!');
     } catch (e) {
         console.error('❌ Webhook error:', e.message);
     }
