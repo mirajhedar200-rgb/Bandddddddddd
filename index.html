@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Green Lucky Box 🎁</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body {
+            background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+            color: #ffffff;
+            font-family: 'Cairo', sans-serif;
+            display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+            min-height: 100vh; margin: 0; padding: 20px 15px; overflow: hidden;
+        }
+        .header { text-align: center; margin-top: 10px; }
+        .header h1 {
+            font-size: 24px; font-weight: 800; margin: 0;
+            background: linear-gradient(135deg, #34d399, #10b981);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .header p { font-size: 13px; color: #94a3b8; margin-top: 5px; }
+        .box-wrapper { position: relative; display: flex; justify-content: center; align-items: center; margin: auto 0; }
+        .glow-effect {
+            position: absolute; width: 220px; height: 220px; border-radius: 50%;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.35) 0%, rgba(16, 185, 129, 0) 70%);
+            animation: pulseGlow 2.5s infinite alternate;
+        }
+        @keyframes pulseGlow { 0% { transform: scale(0.9); opacity: 0.5; } 100% { transform: scale(1.25); opacity: 1; } }
+        .box-card {
+            position: relative; width: 170px; height: 170px;
+            background: linear-gradient(145deg, #10b981, #047857);
+            border: 3px solid #6ee7b7; border-radius: 28px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; box-shadow: 0 15px 35px rgba(16, 185, 129, 0.4);
+            z-index: 2;
+        }
+        .box-icon { font-size: 85px; }
+        .shake { animation: shakeAnim 0.6s infinite ease-in-out; }
+        @keyframes shakeAnim {
+            0% { transform: rotate(0deg); } 25% { transform: rotate(-6deg); } 75% { transform: rotate(6deg); } 100% { transform: rotate(0deg); }
+        }
+        .result-panel {
+            background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px; padding: 15px 25px; text-align: center; width: 100%; max-width: 320px; margin-bottom: 20px;
+        }
+        .price-tag { font-size: 13px; color: #cbd5e1; }
+        .price-value { color: #f59e0b; font-weight: 700; }
+        .status-text { font-size: 17px; font-weight: 700; color: #f8fafc; margin-top: 5px; }
+        .open-btn {
+            width: 100%; max-width: 320px; background: linear-gradient(135deg, #10b981, #059669);
+            color: white; border: none; padding: 14px; font-size: 16px; font-weight: 700;
+            font-family: 'Cairo', sans-serif; border-radius: 16px; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="header"><h1>Green Lucky Box 🎁</h1><p>افتح الصندوق واكتشف مفاجأة حظك اليوم!</p></div>
+    <div class="box-wrapper"><div class="glow-effect"></div><div id="boxCard" class="box-card" onclick="triggerOpen()"><div id="boxIcon" class="box-icon">🎁</div></div></div>
+    <div class="result-panel"><div class="price-tag">تكلفة الفتح: <span class="price-value">2,000 ل.س</span></div><div id="statusText" class="status-text">اضغط على الصندوق لفتحه!</div></div>
+    <button id="openBtn" class="open-btn" onclick="triggerOpen()">افتح الصندوق الآن 🎁</button>
+    <script>
+        const tg = window.Telegram.WebApp; tg.expand();
+        let isOpening = false;
+        function triggerOpen() {
+            if (isOpening) return; isOpening = true;
+            const boxCard = document.getElementById('boxCard');
+            const statusText = document.getElementById('statusText');
+            boxCard.classList.add('shake');
+            statusText.innerText = 'جاري الفتح...';
+            fetch('/api/open-box', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: tg.initDataUnsafe?.user?.id })
+            }).then(res => res.json()).then(data => {
+                setTimeout(() => {
+                    boxCard.classList.remove('shake');
+                    statusText.innerHTML = data.success ? (data.prize > 0 ? `مبروك! ربحت ${data.prize} ل.س 🎉` : 'حظ أوفر المرة القادمة!') : (data.message || 'رصيدك غير كافٍ!');
+                    isOpening = false;
+                }, 1000);
+            }).catch(() => { boxCard.classList.remove('shake'); statusText.innerText = 'خطأ بالاتصال!'; isOpening = false; });
+        }
+    </script>
+</body>
+</html>
