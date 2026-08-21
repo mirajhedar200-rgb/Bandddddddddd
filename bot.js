@@ -6,7 +6,6 @@ const db = require('./database');
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE'; 
 const RENDER_URL = process.env.RENDER_URL || 'https://your-app-name.onrender.com'; 
 const ADMIN_ID = parseInt(process.env.ADMIN_ID) || 123456789; 
-const CHANNEL_USERNAME = process.env.CHANNEL_USERNAME || '@YourChannelUsername'; 
 
 const bot = new Telegraf(BOT_TOKEN); 
 const app = express(); 
@@ -28,18 +27,34 @@ function calculatePrize(openedCount) {
     } 
 } 
 
+// الحصول على قناة الاشتراك الإجباري الديناميكية من قاعدة البيانات
+function getRequiredChannel() {
+    return new Promise((resolve) => {
+        db.get('SELECT value FROM settings WHERE key = "channel_username"', (err, row) => {
+            if (row && row.value) {
+                resolve(row.value.trim());
+            } else {
+                resolve(process.env.CHANNEL_USERNAME || '@YourChannelUsername');
+            }
+        });
+    });
+}
+
 // فحص الاشتراك الإجباري
 async function checkSubscription(ctx, next) { 
-    if (ctx.from.id === ADMIN_ID) return next(); 
+    if (ctx.from && ctx.from.id === ADMIN_ID) return next(); 
     try { 
-        const member = await ctx.telegram.getChatMember(CHANNEL_USERNAME, ctx.from.id); 
+        const channelUsername = await getRequiredChannel();
+        if (!channelUsername || channelUsername === '@YourChannelUsername') return next();
+
+        const member = await ctx.telegram.getChatMember(channelUsername, ctx.from.id); 
         if (['creator', 'administrator', 'member'].includes(member.status)) { 
             return next(); 
         } 
         return ctx.reply(
-            `📢 أهلاً بك! يرجى الاشتراك في القناة أولاً لاستخدام البوت:\n${CHANNEL_USERNAME}`, 
+            `📢 أهلاً بك! يرجى الاشتراك في القناة أولاً لاستخدام البوت:\n${channelUsername}`, 
             Markup.inlineKeyboard([ 
-                [Markup.button.url('📢 اشترك بالقناة', `https://t.me/${CHANNEL_USERNAME.replace('@','')}`)], 
+                [Markup.button.url('📢 اشترك بالقناة', `https://t.me/${channelUsername.replace('@','')}`)], 
                 [Markup.button.callback('✅ تحقق من الاشتراك', 'verify_sub')] 
             ]) 
         ); 
@@ -203,7 +218,7 @@ bot.command('admin', (ctx) => {
         [Markup.button.callback('➕ إضافة رصيد', 'admin_add_bal'), Markup.button.callback('➖ خصم رصيد', 'admin_sub_bal')], 
         [Markup.button.callback('🔍 سجل مستخدم', 'admin_user_history'), Markup.button.callback('📢 إذاعة عامة', 'admin_broadcast')], 
         [Markup.button.callback('⚙️ تعديل الشحن', 'set_recharge'), Markup.button.callback('⚙️ تعديل السحب', 'set_withdraw')], 
-        [Markup.button.callback('➕ إضافة كود هدية', 'add_promo_code')] 
+        [Markup.button.callback('➕ إضافة كود هدية', 'add_promo_code'), Markup.button.callback('📢 قناة الاشتراك', 'set_channel')] 
     ])); 
 }); 
 
@@ -231,6 +246,31 @@ bot.action('admin_broadcast', (ctx) => {
     ctx.reply('📢 أرسل الرسالة التي تريد إذاعتها لجميع المشتركين:'); 
 }); 
 
+bot.action('set_recharge', (ctx) => { 
+    if (ctx.from.id !== ADMIN_ID) return; 
+    userState[ADMIN_ID] = { step: 'awaiting_set_recharge' }; 
+    ctx.reply('⚙️ أرسل التعليمات أو رقم سيريتل كاش الجديد المخصص للشحن:'); 
+}); 
+
+bot.action('set_withdraw', (ctx) => { 
+    if (ctx.from.id !== ADMIN_ID) return; 
+    userState[ADMIN_ID] = { step: 'awaiting_set_withdraw' }; 
+    ctx.reply('⚙️ أرسل التعليمات والشروط الجديدة المخصصة لسحب الأرباح:'); 
+}); 
+
+bot.action('add_promo_code', (ctx) => { 
+    if (ctx.from.id !== ADMIN_ID) return; 
+    userState[ADMIN_ID] = { step: 'awaiting_add_promo' }; 
+    ctx.reply('➕ أرسل **الكود + قيمة المكافأة + عدد الاستخدامات** بهذا الشكل:\n`GIFT100 5000 10`', { parse_mode: 'Markdown' }); 
+}); 
+
+// --- زر جديد لتعيين قناة الاشتراك الإجباري ---
+bot.action('set_channel', (ctx) => { 
+    if (ctx.from.id !== ADMIN_ID) return; 
+    userState[ADMIN_ID] = { step: 'awaiting_set_channel' }; 
+    ctx.reply('📢 أرسل معرف القناة الجديدة مع الـ `@` (تأكد أن البوت مشرف داخل القناة):\nمثال: `@MyNewChannel`'); 
+}); 
+
 // --- استقبال النصوص --- 
 bot.on('text', checkSubscription, (ctx) => { 
     const userId = ctx.from.id; 
@@ -238,7 +278,44 @@ bot.on('text', checkSubscription, (ctx) => {
 
     if (userId === ADMIN_ID && state) { 
         const text = ctx.message.text; 
-        if (state.step === 'awaiting_add_bal') { 
+
+        if (state.step === 'awaiting_set_channel') {
+            delete userState[ADMIN_ID]; 
+            const newChannel = text.trim();
+            if (!newChannel.startsWith('@')) {
+                return ctx.reply('❌ يرجى كتابة المعرف بشكل صحيح مع الرمز `@` في البداية.');
+            }
+            db.run('INSERT OR REPLACE INTO settings (key, value) VALUES ("channel_username", ?)', [newChannel], (err) => { 
+                ctx.reply(`✅ تم تحديث قناة الاشتراك الإجباري إلى: ${newChannel}\n\n⚠️ **تنبيه:** تأكد أن البوت مضاف في القناة ولديه صلاحية الإشراف (Admin).`); 
+            }); 
+            return;
+        } else if (state.step === 'awaiting_set_recharge') { 
+            delete userState[ADMIN_ID]; 
+            db.run('INSERT OR REPLACE INTO settings (key, value) VALUES ("syriatel_info", ?)', [text], (err) => { 
+                ctx.reply('✅ تم تحديث معلومات تعليمات الشحن بنجاح!'); 
+            }); 
+            return; 
+        } else if (state.step === 'awaiting_set_withdraw') { 
+            delete userState[ADMIN_ID]; 
+            db.run('INSERT OR REPLACE INTO settings (key, value) VALUES ("withdraw_info", ?)', [text], (err) => { 
+                ctx.reply('✅ تم تحديث معلومات تعليمات السحب بنجاح!'); 
+            }); 
+            return; 
+        } else if (state.step === 'awaiting_add_promo') { 
+            delete userState[ADMIN_ID]; 
+            const parts = text.split(' '); 
+            const code = parts[0]; 
+            const reward = parseInt(parts[1]); 
+            const uses = parseInt(parts[2]); 
+            if (!code || isNaN(reward) || isNaN(uses)) { 
+                return ctx.reply('❌ صيغة خاطئة! أرسل [الكود والمكافأة وعدد الاستخدامات] بمسافة بينها.\nمثال: `FREE2026 5000 10`', { parse_mode: 'Markdown' }); 
+            } 
+            db.run('INSERT INTO promo_codes (code, reward, uses_left) VALUES (?, ?, ?)', [code, reward, uses], (err) => { 
+                if (err) return ctx.reply('❌ هذا الكود موجود مسبقاً، يرجى تغيير اسم الكود.'); 
+                ctx.reply(`✅ تم إنشاء كود الهدية \`${code}\` بمكافأة ${reward} ل.س لـ ${uses} مستخدم بنجاح!`, { parse_mode: 'Markdown' }); 
+            }); 
+            return; 
+        } else if (state.step === 'awaiting_add_bal') { 
             delete userState[ADMIN_ID]; 
             const [targetId, amount] = text.split(' '); 
             if (!targetId || isNaN(amount)) return ctx.reply('❌ صيغة خاطئة! أرسل الآيدي والمبلغ بمسافة بينهما.'); 
@@ -333,7 +410,7 @@ setInterval(() => {
         .catch((err) => console.log('⚡ Keep-Alive Ping:', err.message)); 
 }, 3 * 60 * 1000); 
 
-// إرسال واجهة صفحة الـ WebApp للزر بشكل مباشر وبدون ملفات خارجية
+// إرسال واجهة صفحة الـ WebApp للزر بشكل مباشر
 app.get('*', (req, res) => {
     res.send(`
     <!DOCTYPE html>
