@@ -1,6 +1,5 @@
 const { Telegraf, Markup } = require('telegraf'); 
 const express = require('express'); 
-const axios = require('axios'); 
 
 const BOT_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE'; 
 const RENDER_URL = process.env.RENDER_URL || 'https://your-app-name.onrender.com'; 
@@ -13,12 +12,12 @@ app.use(express.json());
 
 const userState = {}; 
 
-// تخزين محلي بدلاً من قاعدة البيانات
+// تخزين محلي للبيانات
 const db = {
-    users: {},       // تخزين المستخدمين: user_id -> { balance, referral_balance, opened_count, accepted_terms, joined_at, username }
-    transactions: [], // سجل العمليات
-    promo_codes: {},  // كود الهدية -> { reward, uses_left }
-    used_codes: {},   // user_id_code -> true
+    users: {},       // user_id -> { balance, referral_balance, opened_count, accepted_terms, joined_at, username }
+    transactions: [], 
+    promo_codes: {},  
+    used_codes: {},   
     settings: {
         channel_username: process.env.CHANNEL_USERNAME || '@YourChannelUsername',
         syriatel_info: 'يرجى التحويل لسيريتل كاش على الرقم المعين من الإدارة.',
@@ -142,14 +141,96 @@ bot.hears('🎁 فتح الصندوق', checkSubscription, async (ctx) => {
     if (!user || parseInt(user.balance) < 2000) { 
         return ctx.reply('⚠️ رصيدك غير كافٍ! سعر فتح الصندوق 2000 ل.س. اشحن حسابك لتستمتع باللعب.'); 
     } 
-    const webAppUrl = `${RENDER_URL}?user_id=${userId}`; 
-    ctx.reply('🎁 سعر الصندوق 2000 ل.س قديمة. هل تريد الشراء والفتح؟', Markup.inlineKeyboard([ 
+    const webAppUrl = `${RENDER_URL}/box?user_id=${userId}`; 
+    ctx.reply('🎁 سعر الصندوق 2000 ل.س. هل تريد الشراء والفتح عبر نافذة الويب؟', Markup.inlineKeyboard([ 
         [Markup.button.webApp('📦 افتح الصندوق الآن', webAppUrl)], 
         [Markup.button.callback('❌ إلغاء', 'cancel_act')] 
     ]) ); 
 }); 
 
 bot.action('cancel_act', (ctx) => ctx.deleteMessage().catch(() => {})); 
+
+// --- صفحة الويب الخاصة بالصندوق (تم حل مشكلة Cannot GET /) ---
+app.get('/box', (req, res) => {
+    const userId = req.query.user_id;
+    res.send(`
+        <!DOCTYPE html>
+        html lang="ar" dir="rtl">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Green Lucky Box</title>
+            <style>
+                body {
+                    background-color: #0f172a;
+                    color: #fff;
+                    font-family: Tahoma, sans-serif;
+                    text-align: center;
+                    padding: 20px;
+                    margin: 0;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                }
+                .box-container {
+                    background: #1e293b;
+                    padding: 30px;
+                    border-radius: 20px;
+                    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+                    width: 90%;
+                    max-width: 400px;
+                }
+                h1 { color: #22c55e; font-size: 24px; }
+                button {
+                    background: #22c55e;
+                    color: white;
+                    border: none;
+                    padding: 12px 25px;
+                    font-size: 18px;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    margin-top: 20px;
+                    width: 100%;
+                    font-weight: bold;
+                }
+                button:hover { background: #16a34a; }
+                #result { margin-top: 20px; font-size: 20px; color: #facc15; }
+            </style>
+        </head>
+        <body>
+            <div class="box-container">
+                <h1>🎁 Green Lucky Box</h1>
+                <p>تكلفة الفتح: 2000 ل.س</p>
+                <button onclick="openBox()">افتح الصندوق الآن</button>
+                <div id="result"></div>
+            </div>
+            <script>
+                async function openBox() {
+                    const resDiv = document.getElementById('result');
+                    resDiv.innerHTML = "⏳ جاري فتح الصندوق...";
+                    try {
+                        const response = await fetch('/api/open-box', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_id: "${userId}" })
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                            resDiv.innerHTML = \`🎉 مبروك! ربحت: \${data.prize} ل.س<br>💰 رصيدك الحالي: \${data.newBalance} ل.س\`;
+                        } else {
+                            resDiv.innerHTML = \`❌ \${data.message}\`;
+                        }
+                    } catch (e) {
+                        resDiv.innerHTML = "❌ حدث خطأ في الاتصال بالخادم";
+                    }
+                }
+            </script>
+        </body>
+        </html>
+    `);
+});
 
 app.post('/api/open-box', async (req, res) => { 
     const userId = req.body.user_id; 
