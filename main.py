@@ -8,16 +8,17 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # ==================== الإعدادات والمتغيرات الأساسية ====================
-TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")  # توكن البوت
-ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))      # آيدي الأدمن الخاص بك
-CHANNEL_USERNAME = "@your_channel"                      # قناة الاشتراك الإجباري (ضع قناتك هنا)
-WEB_APP_URL = "https://your-username.github.io/index.html"  # رابط صفحة الألعاب (index.html) التي رفعتها
+TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))  # ضع آيدي الحساب الخاص بك هنا
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "") # اتركها فارغة "" إلغاء الاشتراك الإجباري مؤقتاً، أو ضع قناتك مثل "@MyChannel"
+WEB_APP_URL = os.getenv("WEB_APP_URL", "https://mirajhedar200-rgb.github.io/Bandddddddddd/")
 
-# قاعدة بيانات مؤقتة (جاهزة للربط المستقبلي مع PostgreSQL)
 users_db = {}
 
 # ==================== التحقق من الاشتراك الإجباري ====================
 async def check_subscription(user_id, context):
+    if not CHANNEL_USERNAME or CHANNEL_USERNAME == "@your_channel":
+        return True  # إذا لم يتم تحديد قناة، يتم السماح للجميع فوراً
     try:
         member = await context.bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
         if member.status in ['member', 'administrator', 'creator']:
@@ -34,25 +35,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in users_db:
         users_db[user_id] = {"balance": 10000.0, "ref_count": 0}
 
-    # التحقق من الاشتراك الإجباري عند البدء
-    is_subscribed = await check_subscription(user_id, context)
-    if not is_subscribed:
-        keyboard = [
-            [InlineKeyboardButton("📢 اشترك في قناة البوت", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")],
-            [InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_sub")]
-        ]
-        await update.message.reply_text(
-            f"⚠️ عذراً، يجب عليك الاشتراك في قناة البوت أولاً لاستخدامه:\n{CHANNEL_USERNAME}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
+    # استثناء الأدمن من الاشتراك الإجباري تماماً ليتمكن من الدخول للوحة التحكم
+    if user_id != ADMIN_ID:
+        is_subscribed = await check_subscription(user_id, context)
+        if not is_subscribed:
+            keyboard = [
+                [InlineKeyboardButton("📢 اشترك في قناة البوت", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")],
+                [InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_sub")]
+            ]
+            await update.message.reply_text(
+                f"⚠️ عذراً، يجب عليك الاشتراك في قناة البوت أولاً لاستخدامه:\n{CHANNEL_USERNAME}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
 
-    # أزرار القائمة السفلية الثابتة المطلوبة تماماً
+    # أزرار القائمة السفلية الثابتة
     keyboard = [
         [KeyboardButton("🎁 فتح الصندوق")],
         [KeyboardButton("💳 شحن رصيد"), KeyboardButton("💸 سحب رصيد")],
         [KeyboardButton("🎁 كود هدية"), KeyboardButton("👥 الإحالات")],
-        [KeyboardButton("📊 السجل"), KeyboardButton("👤 معلومات حسابي")]
+        [KeyboardButton("📊 السجل"), KeyboardButton("👤 معلومات حسابي")],
+        [KeyboardButton("📊 لوحة التحكم")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
@@ -72,10 +75,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users_db[user_id] = {"balance": 10000.0, "ref_count": 0}
 
     if text == "🎁 فتح الصندوق":
-        # زر يفتح صفحة الويب (Mini App) التي تحتوي على الألعاب الأربعة داخل تليجرام
         keyboard = [[InlineKeyboardButton("🚀 افتح كازينو Get You للألعاب", web_app={"url": WEB_APP_URL})]]
         await update.message.reply_text(
-            "🎮 اضغط على الزر أدناه لفتح واجهة ألعاب الكازينو (Golden Tree, صناديق الحظ, الجوكر, والسلوت):",
+            "🎮 اضغط على الزر أدناه لفتح واجهة ألعاب الكازينو:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -103,8 +105,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ref_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
         await update.message.reply_text(
             f"👥 *نظام الإحالات ونسبة الحرق (20%):*\n\n"
-            f"رابط الإحالة الخاص بك:\n`{ref_link}`\n\n"
-            f"تحصل على عمولة فورية لكل لاعب يشارك عبر رابطك.",
+            f"رابط الإحالة الخاص بك:\n`{ref_link}`",
             parse_mode="Markdown"
         )
 
@@ -113,12 +114,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "/admin" or text == "📊 لوحة التحكم":
         if user_id == ADMIN_ID:
-            # لوحة تحكم الأدمن المطابقة تماماً للصورة التي أرسلتها
             admin_keyboard = [
                 [KeyboardButton("➕ إضافة رصيد"), KeyboardButton("➖ خصم رصيد")],
                 [KeyboardButton("🔍 سجل مستخدم"), KeyboardButton("📢 إذاعة عامة")],
                 [KeyboardButton("⚙️ تعديل السحب"), KeyboardButton("⚙️ تعديل الشحن")],
-                [KeyboardButton("➕ إضافة كود هدية"), KeyboardButton("📢 قناة الاشتراك")]
+                [KeyboardButton("➕ إضافة كود هدية"), KeyboardButton("📢 قناة الاشتراك")],
+                [KeyboardButton("🔙 العودة للقائمة الرئيسية")]
             ]
             await update.message.reply_text(
                 "🛠️ **لوحة تحكم الأدمن الشاملة:**",
@@ -128,7 +129,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("عذراً، هذه اللوحة مخصصة للمشرفين فقط.")
 
-    # الاستجابة لأزرار لوحة التحكم الخاصة بالأدمن
+    elif text == "🔙 العودة للقائمة الرئيسية":
+        await start(update, context)
+
     elif user_id == ADMIN_ID:
         if text in ["➕ إضافة رصيد", "➖ خصم رصيد", "🔍 سجل مستخدم", "📢 إذاعة عامة", "⚙️ تعديل السحب", "⚙️ تعديل الشحن", "➕ إضافة كود هدية", "📢 قناة الاشتراك"]:
             await update.message.reply_text(f"⚙️ تم استلام أمر الأدمن ({text}). جارٍ تنفيذه عبر النظام...")
@@ -143,7 +146,6 @@ async def inline_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         is_subscribed = await check_subscription(user_id, context)
         if is_subscribed:
             await query.message.delete()
-            # استدعاء دالة البدء مجدداً بعد التحقق من الاشتراك
             update.message = query.message
             await start(update, context)
         else:
@@ -159,7 +161,7 @@ def main():
     application.add_handler(CallbackQueryHandler(inline_callback_handler))
 
     print("Get You Complete Bot is running...")
-    application.run_polling()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
