@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة العجلات - Jackpot Roulette</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <style>
+        body {
+            background-color: #121826;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 15px;
+            text-align: center;
+        }
+        h1 { color: #f39c12; font-size: 22px; margin-bottom: 20px; }
+        .wheels-container {
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+            align-items: center;
+        }
+        .wheel-card {
+            background: #1e293b;
+            border-radius: 16px;
+            padding: 20px;
+            width: 100%;
+            max-width: 350px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+            border: 2px solid transparent;
+        }
+        .wheel-card.red { border-color: #e74c3c; }
+        .wheel-card.blue { border-color: #3498db; }
+        .wheel-card.gold { border-color: #f1c40f; }
+
+        .wheel-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+        .wheel-card.red .wheel-title { color: #e74c3c; }
+        .wheel-card.blue .wheel-title { color: #3498db; }
+        .wheel-card.gold .wheel-title { color: #f1c40f; }
+
+        .wheel-box {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 15px auto;
+            border-radius: 50%;
+            border: 6px solid #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            transition: transform 4s cubic-bezier(0.15, 0.9, 0.2, 1);
+            background: conic-gradient(#e74c3c 0deg 180deg, #ffffff 180deg 360deg);
+        }
+        .wheel-card.blue .wheel-box {
+            background: conic-gradient(#3498db 0deg 180deg, #ffffff 180deg 360deg);
+            color: #000;
+        }
+        .wheel-card.gold .wheel-box {
+            background: conic-gradient(#f1c40f 0deg 180deg, #ffffff 180deg 360deg);
+            color: #000;
+        }
+
+        .pointer {
+            width: 0; 
+            height: 0; 
+            border-left: 12px solid transparent;
+            border-right: 12px solid transparent;
+            border-top: 20px solid #e74c3c;
+            margin: 0 auto -10px auto;
+        }
+
+        .btn {
+            background: #27ae60;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        .btn-spin { background: #d35400; margin-top: 5px; }
+        .participants-list { font-size: 12px; color: #cbd5e1; margin-top: 8px; }
+    </style>
+</head>
+<body>
+
+    <h1>🎰 عجلات روليت جاك ID</h1>
+
+    <div class="wheels-container">
+        <!-- العجلة الحمراء -->
+        <div class="wheel-card red">
+            <div class="wheel-title">🔴 العجلة الحمراء (10 مشاركين)</div>
+            <div>ثمن الاشتراك: 2000 ل.س</div>
+            <div class="pointer"></div>
+            <div class="wheel-box" id="wheel-red">ID القرص</div>
+            <div class="participants-list" id="list-red">المشاركون: 0 / 10</div>
+            <button class="btn" onclick="joinWheel('red')">اشتراك (2000 ل.س)</button>
+            <button class="btn btn-spin" id="spin-red" style="display:none;" onclick="spinWheel('red')">⚡ تدوير العجلة (أدمن)</button>
+        </div>
+
+        <!-- العجلة الزرقاء -->
+        <div class="wheel-card blue">
+            <div class="wheel-title">🔵 العجلة الزرقاء (15 مشاركاً)</div>
+            <div>ثمن الاشتراك: 2500 ل.س</div>
+            <div class="pointer"></div>
+            <div class="wheel-box" id="wheel-blue">ID القرص</div>
+            <div class="participants-list" id="list-blue">المشاركون: 0 / 15</div>
+            <button class="btn" onclick="joinWheel('blue')">اشتراك (2500 ل.س)</button>
+            <button class="btn btn-spin" id="spin-blue" style="display:none;" onclick="spinWheel('blue')">⚡ تدوير العجلة (أدمن)</button>
+        </div>
+
+        <!-- العجلة الذهبية -->
+        <div class="wheel-card gold">
+            <div class="wheel-title">🟡 العجلة الذهبية (25 مشاركاً)</div>
+            <div>ثمن الاشتراك: 3000 ل.س</div>
+            <div class="pointer"></div>
+            <div class="wheel-box" id="wheel-gold">ID القرص</div>
+            <div class="participants-list" id="list-gold">المشاركون: 0 / 25</div>
+            <button class="btn" onclick="joinWheel('gold')">اشتراك (3000 ل.س)</button>
+            <button class="btn btn-spin" id="spin-gold" style="display:none;" onclick="spinWheel('gold')">⚡ تدوير العجلة (أدمن)</button>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        const userId = tg.initDataUnsafe?.user?.id || 123456789;
+        const socket = io();
+
+        // جلب حالة العجلات عند الفتح
+        fetch('/api/state')
+            .then(res => res.json())
+            .then(data => {
+                updateWheelUI('red', data.red || [], 10);
+                updateWheelUI('blue', data.blue || [], 15);
+                updateWheelUI('gold', data.gold || [], 25);
+            });
+
+        function updateWheelUI(type, list, max) {
+            document.getElementById(`list-${type}`).innerText = `المشاركون: ${list.length} / ${max}`;
+        }
+
+        function joinWheel(type) {
+            fetch('/api/join', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ user_id: userId, wheel_type: type })
+            })
+            .then(res => res.json())
+            .then(data => alert(data.message));
+        }
+
+        function spinWheel(type) {
+            fetch('/api/spin', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ admin_id: userId, wheel_type: type })
+            })
+            .then(res => res.json())
+            .then(data => { if(!data.success) alert(data.message); });
+        }
+
+        socket.on('participant_joined', () => {
+            fetch('/api/state')
+                .then(res => res.json())
+                .then(state => {
+                    updateWheelUI('red', state.red || [], 10);
+                    updateWheelUI('blue', state.blue || [], 15);
+                    updateWheelUI('gold', state.gold || [], 25);
+                });
+        });
+
+        socket.on('spin_result', data => {
+            const wheel = document.getElementById(`wheel-${data.wheel_type}`);
+            const randomRotation = 1440 + Math.floor(Math.random() * 360);
+            wheel.style.transform = `rotate(${randomRotation}deg)`;
+
+            setTimeout(() => {
+                if(data.winner === 'حظ أوفر') {
+                    alert(`😔 العجلة وقفت على: حظ أوفر!`);
+                } else {
+                    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+                    alert(`🎉 مبروك ياملك! الفائز هو الـ ID: ${data.winner}`);
+                }
+                wheel.style.transform = `rotate(0deg)`;
+            }, 4000);
+        });
+    </script>
+</body>
+</html>
