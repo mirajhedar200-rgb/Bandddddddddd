@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: telegram-promo-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: PAYMENT_CODE
+        value: "77178326"
+      - key: SUPPORT_USERNAME
+        sync: false
+      - key: REFERRAL_REWARD_OLD
+        value: "3000"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: "gpt-5.4-mini"
+      - key: PORT
+        value: "10000"
+      - key: DB_PATH
+        value: "/tmp/bot.db"
